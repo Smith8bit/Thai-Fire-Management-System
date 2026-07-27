@@ -182,6 +182,7 @@ async def get_fires(
     status: bool | None = None,
     on_date: date | None = None,
     user: User | None = None,
+    display_days: int | None = None,
 ) -> list[dict[str, Any]]:
     """Query firespots with optional region, status, and date filters.
 
@@ -195,6 +196,8 @@ async def get_fires(
         on_date:     Return fires detected on this specific date. If ``None``, returns
                      the rolling window defined by ``FIRE_DISPLAY_DAYS`` in settings.
         user:        Requesting user; ``None`` means an internal/trusted call (no ACL).
+        display_days: Optional rolling-window override for HTTP reporting requests.
+                      ``None`` preserves the configured live-map window.
 
     Returns:
         List of serialised fire dicts ordered by ``detected_at`` descending.
@@ -239,7 +242,12 @@ async def get_fires(
             stmt = stmt.where(func.date(Firespot.detected_at) == on_date)
         else:
             # Default rolling window: today back N days (midnight-aligned in ingest TZ).
-            days = max(get_settings().FIRE_DISPLAY_DAYS, 1)
+            days = max(
+                display_days
+                if display_days is not None
+                else get_settings().FIRE_DISPLAY_DAYS,
+                1,
+            )
             today_start = datetime.now(_INGEST_TZ).replace(
                 hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc
             )

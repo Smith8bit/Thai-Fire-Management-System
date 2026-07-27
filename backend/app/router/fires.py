@@ -32,20 +32,26 @@ router = APIRouter()
 
 
 @router.get("")
-async def list_fires(user: User = Depends(current_active_user)):
+async def list_fires(
+    days: int | None = Query(None, ge=1, le=365),
+    user: User = Depends(current_active_user),
+):
     """
-    Return all fires visible to the current user.
+    Return fires visible to the current user.
 
     Visibility filtering is delegated entirely to `get_fires`, which applies
-    the region-path permission model internally.
+    the region-path permission model internally. Without ``days`` this keeps
+    the short configured live-map window; dashboard reports may request a
+    longer bounded rolling window.
 
     Args:
+        days: Optional rolling window in calendar days (1-365).
         user: Authenticated user injected by FastAPI dependency.
 
     Returns:
         List of fire objects scoped to the user's assigned regions.
     """
-    return await get_fires(user=user)
+    return await get_fires(user=user, display_days=days)
 
 
 @router.get("/resolutions")
