@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowPathIcon,
@@ -13,11 +13,13 @@ import {
 import { useFireData } from '../lib/useFireData'
 import { useMapSelection, useSocketStore } from '../lib/stateStore'
 import { useAuthStore, can } from '../lib/useAuthStore'
+import { apiFetch } from '../lib/shared'
 
 // Thai-locale string comparator, reused by every sort in this file so province/district
 // names order the way a Thai reader expects (not raw code-point order).
 const collator = new Intl.Collator('th')
 const DAY_MS = 24 * 60 * 60 * 1000
+const EMPTY_FIRES = []
 // Fire timestamps from the backend are UTC; this offset re-bases "day" boundaries and
 // display formatting onto Thailand's UTC+7 clock without needing a timezone library.
 const THAI_OFFSET_MS = 7 * 60 * 60 * 1000
@@ -145,6 +147,57 @@ function groupRows(items, keyFn, factory, update) {
   return [...grouped.values()]
 }
 
+/** Partition a fire dataset into the status groups used by dashboard metrics. */
+function summarizeFires(items) {
+  const open = items.filter((f) => !f.status)
+  const assigned = open.filter((f) => f.booked)
+  const unassigned = open.filter((f) => !f.booked)
+  const resolved = items.filter((f) => f.status && !f.expired && !f.false_alarm)
+  const expired = items.filter((f) => f.expired)
+  const falseAlarm = items.filter((f) => f.false_alarm)
+  const newest = [...items].sort(
+    (a, b) => (asDate(b.detected_at)?.getTime() ?? 0) - (asDate(a.detected_at)?.getTime() ?? 0),
+  )[0]
+  return { open, assigned, unassigned, resolved, expired, falseAlarm, newest }
+}
+
+/**
+ * Build a fixed-length daily event series ending today.
+ * Detection dates use the upstream feed's local-day encoding; resolution
+ * timestamps are converted to a Thailand day by utcDayKey().
+ */
+function buildDailyRows(items, nowMs, days) {
+  const todayKey = utcDayKey(nowMs)
+  const endMs = Date.parse(`${todayKey}T00:00:00Z`)
+  const span = Math.max(1, days)
+  const rows = Array.from({ length: span }, (_, index) => {
+    const dayMs = endMs - (span - 1 - index) * DAY_MS
+    const key = new Date(dayMs).toISOString().slice(0, 10)
+    return {
+      key,
+      label: formatShortDay(new Date(dayMs)),
+      detected: 0,
+      resolved: 0,
+      falseAlarm: 0,
+      expired: 0,
+    }
+  })
+  const byKey = new Map(rows.map((row) => [row.key, row]))
+  for (const fire of items) {
+    const detectedRow = byKey.get(detectedDayKey(fire.detected_at))
+    if (detectedRow) detectedRow.detected += 1
+    if (fire.status && fire.resolve_time) {
+      const closeRow = byKey.get(utcDayKey(Date.parse(fire.resolve_time)))
+      if (closeRow) {
+        if (fire.false_alarm) closeRow.falseAlarm += 1
+        else if (fire.expired) closeRow.expired += 1
+        else closeRow.resolved += 1
+      }
+    }
+  }
+  return rows
+}
+
 /**
  * MetricCard
  * Top-row KPI tile.
@@ -193,7 +246,7 @@ function MetricCard({ icon: Icon, title, value, detail, tone = 'forest' }) {
  */
 function Panel({ title, subtitle, icon: Icon, children }) {
   return (
-    <section className="flex min-h-0 flex-col rounded-2xl bg-foreground shadow-md p-2">
+    <section className="flex min-h-0 min-w-0 flex-col rounded-2xl bg-foreground shadow-md p-2">
       <div className="flex items-center justify-between gap-3 border-b border-gray-300 px-4 py-3">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold text-accent">{title}</h2>
@@ -201,7 +254,7 @@ function Panel({ title, subtitle, icon: Icon, children }) {
         </div>
         {Icon && <Icon className="h-5 w-5 shrink-0 text-gray-400" />}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto minimal-scrollbar">{children}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto minimal-scrollbar">{children}</div>
     </section>
   )
 }
@@ -255,13 +308,21 @@ function ProgressBar({ value, total, tone = 'bg-primary' }) {
  */
 function VelocityColumnChart({ rows, maxValue }) {
   const safeMax = Math.max(maxValue, 1) // avoids division by zero when every row is empty
+  const scrollRef = useRef(null)
+
+  // Longer ranges scroll inside the chart rather than widening the dashboard.
+  // Start at the newest dates because they are the most operationally relevant.
+  useEffect(() => {
+    const element = scrollRef.current
+    if (element) element.scrollLeft = element.scrollWidth
+  }, [rows])
 
   if (!rows.length) {
     return <EmptyState>ยังไม่มีข้อมูลในช่วงที่แสดง</EmptyState>
   }
 
   return (
-    <div className="flex h-full min-h-[260px] flex-col">
+    <div className="flex h-full min-h-[260px] min-w-0 flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-3 py-2 text-sm text-gray-500">
         <div className="flex shrink-0 items-center gap-3">
           <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-full bg-blue-400" />พบไฟ</span>
@@ -269,36 +330,41 @@ function VelocityColumnChart({ rows, maxValue }) {
         </div>
         <span className="truncate">สูงสุด {safeMax} จุด/วัน · ปิดงานตามวันที่ปิดจริง</span>
       </div>
-      <div
-        className="grid min-h-0 flex-1 items-end gap-1.5 px-3 py-3"
-        style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}
-      >
-        {rows.map((row) => {
-          const detected = Math.max(0, row.detected)
-          const resolved = Math.max(0, row.resolved)
+      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-x-auto minimal-scrollbar">
+        <div
+          className="grid h-full min-h-[210px] items-end gap-1.5 px-3 py-3"
+          style={{
+            gridTemplateColumns: `repeat(${rows.length}, minmax(38px, 1fr))`,
+            minWidth: rows.length > 14 ? `${rows.length * 42}px` : '100%',
+          }}
+        >
+          {rows.map((row) => {
+            const detected = Math.max(0, row.detected)
+            const resolved = Math.max(0, row.resolved)
 
-          return (
-            <div key={row.key} className="flex h-full min-w-0 flex-col items-center justify-end gap-2">
-              <div className="text-center leading-tight">
-                <p className="text-sm font-semibold text-blue-700">{detected}</p>
-                <p className="text-sm font-medium text-primary">{resolved} ปิด</p>
+            return (
+              <div key={row.key} className="flex h-full min-w-0 flex-col items-center justify-end gap-2">
+                <div className="text-center leading-tight">
+                  <p className="text-sm font-semibold text-blue-700">{detected}</p>
+                  <p className="text-sm font-medium text-primary">{resolved} ปิด</p>
+                </div>
+                <div className="flex h-36 w-full items-end justify-center gap-1">
+                  <div
+                    className="w-2.5 rounded-t bg-blue-400"
+                    style={{ height: `${clampPercent(detected, safeMax)}%` }}
+                    title={`พบ ${detected} จุด`}
+                  />
+                  <div
+                    className="w-2.5 rounded-t bg-primary"
+                    style={{ height: `${clampPercent(resolved, safeMax)}%` }}
+                    title={`ปิด ${resolved} จุด`}
+                  />
+                </div>
+                <p className="truncate text-center text-sm font-medium text-gray-500">{row.label}</p>
               </div>
-              <div className="flex h-36 w-full items-end justify-center gap-1">
-                <div
-                  className="w-2.5 rounded-t bg-blue-400"
-                  style={{ height: `${clampPercent(detected, safeMax)}%` }}
-                  title={`พบ ${detected} จุด`}
-                />
-                <div
-                  className="w-2.5 rounded-t bg-primary"
-                  style={{ height: `${clampPercent(resolved, safeMax)}%` }}
-                  title={`ปิด ${resolved} จุด`}
-                />
-              </div>
-              <p className="truncate text-center text-sm font-medium text-gray-500">{row.label}</p>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -327,8 +393,8 @@ function CompactRows({ rows, renderRow }) {
  * Route-level component (no props). Two-tab operational overview:
  * "ops" (live status: open fires, backlog, officer availability, watchlist)
  * and "info" (historical stats: closure rates, top provinces/districts, daily velocity).
- * Fire data comes from the shared useFireData hook; officer data from the socket store,
- * gated behind the 'officers.view' permission.
+ * Operational fire data comes from the shared useFireData hook. The info tab
+ * fetches its own longer, region-scoped report window over HTTP.
  *
  * Returns: JSX.Element.
  */
@@ -343,6 +409,10 @@ export default function DashboardPage() {
   const setFocusedFire = useMapSelection((s) => s.setFocused)
 
   const [activeTab, setActiveTab] = useState('ops') // 'ops' | 'info'
+  const [reportDays, setReportDays] = useState(7) // 7 | 30: rolling window for the info tab only
+  const [reportFires, setReportFires] = useState(null) // null while the selected report is loading
+  const [reportError, setReportError] = useState(null)
+  const [reportReload, setReportReload] = useState(0)
   // Snapshotted rather than read live so all age/backlog calculations in a render agree;
   // refreshed explicitly by `refresh()`, not on a timer.
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -356,6 +426,30 @@ export default function DashboardPage() {
     send({ type: 'list_pending_officers' })
   }, [ready, send, canViewOfficers])
 
+  // Summary reporting is intentionally fetched over HTTP, separately from the
+  // two-day WebSocket dataset used by operations and the map.
+  useEffect(() => {
+    if (activeTab !== 'info') return
+    const controller = new AbortController()
+    let cancelled = false
+    ;(async () => {
+      try {
+        const response = await apiFetch(`/fires?days=${reportDays}`, { signal: controller.signal })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const data = await response.json()
+        if (!cancelled) setReportFires(Array.isArray(data) ? data : [])
+      } catch (error) {
+        if (error.name === 'AbortError') return
+        console.warn('[DashboardPage] report load failed:', error)
+        if (!cancelled) setReportError('โหลดข้อมูลสรุปไม่สำเร็จ')
+      }
+    })()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [activeTab, reportDays, reportReload])
+
   /**
    * refresh
    * Manual refresh handler bound to the header's reload button: re-stamps
@@ -364,6 +458,12 @@ export default function DashboardPage() {
    */
   const refresh = useCallback(() => {
     setNowMs(Date.now())
+    if (activeTab === 'info') {
+      setReportFires(null)
+      setReportError(null)
+      setReportReload((value) => value + 1)
+      return
+    }
     if (ready) {
       if (canViewOfficers) {
         send({ type: 'list_officers' })
@@ -371,7 +471,7 @@ export default function DashboardPage() {
       }
       send({ type: 'resync_fires' })
     }
-  }, [ready, send, canViewOfficers])
+  }, [activeTab, ready, send, canViewOfficers])
 
   /**
    * openFireOnMap
@@ -387,18 +487,10 @@ export default function DashboardPage() {
     [navigate, setFocusedFire],
   )
 
-  // Core fire-status partition used throughout both tabs.
-  const summary = useMemo(() => {
-    const open = fires.filter((f) => !f.status)
-    const assigned = open.filter((f) => f.booked)
-    const unassigned = open.filter((f) => !f.booked)
-    const resolved = fires.filter((f) => f.status && !f.expired && !f.false_alarm)
-    const expired = fires.filter((f) => f.expired)
-    const falseAlarm = fires.filter((f) => f.false_alarm)
-    const newest = [...fires].sort((a, b) => (asDate(b.detected_at)?.getTime() ?? 0) - (asDate(a.detected_at)?.getTime() ?? 0))[0]
-
-    return { open, assigned, unassigned, resolved, expired, falseAlarm, newest }
-  }, [fires])
+  // Operational calculations keep using only the live WebSocket dataset.
+  const summary = useMemo(() => summarizeFires(fires), [fires])
+  const reportSource = reportFires ?? EMPTY_FIRES
+  const reportSummary = useMemo(() => summarizeFires(reportSource), [reportSource])
 
   const officerSummary = useMemo(() => {
     const online = officers.filter((o) => o.active)
@@ -426,7 +518,7 @@ export default function DashboardPage() {
   // Top 3 provinces by resolved-fire count, for the "info" tab leaderboard.
   const topProvinceRows = useMemo(() => {
     return groupRows(
-      fires,
+      reportSource,
       (f) => f.province,
       (province) => ({ province, total: 0, resolved: 0 }),
       (row, f) => {
@@ -436,13 +528,13 @@ export default function DashboardPage() {
     )
       .sort((a, b) => b.resolved - a.resolved || b.total - a.total || collator.compare(a.province, b.province))
       .slice(0, 3)
-  }, [fires])
+  }, [reportSource])
 
   // Top 3 districts (aumper), grouped by "district|province" so same-named districts
   // in different provinces aren't merged together.
   const topDistrictRows = useMemo(() => {
     return groupRows(
-      fires,
+      reportSource,
       (f) => `${f.aumper || 'ไม่ระบุอำเภอ'}|${f.province || 'ไม่ระบุจังหวัด'}`,
       (_key, f) => ({
         district: f.aumper || 'ไม่ระบุอำเภอ',
@@ -457,7 +549,7 @@ export default function DashboardPage() {
     )
       .sort((a, b) => b.resolved - a.resolved || b.total - a.total || collator.compare(a.district, b.district))
       .slice(0, 3)
-  }, [fires])
+  }, [reportSource])
 
   // Unassigned fires, oldest-first, so the most urgent items surface at the top of the watchlist.
   const watchlist = useMemo(() => {
@@ -465,40 +557,11 @@ export default function DashboardPage() {
       .sort((a, b) => (asDate(a.detected_at)?.getTime() ?? 0) - (asDate(b.detected_at)?.getTime() ?? 0))
   }, [summary.unassigned])
 
-  // Builds the daily detected-vs-resolved series for the velocity chart, spanning from the
-  // earliest fire's detection day (or today, capped to 14 days) through today.
-  const dailyRows = useMemo(() => {
-    const todayKey = utcDayKey(nowMs)
-    let minKey = todayKey
-    for (const fire of fires) {
-      const key = detectedDayKey(fire.detected_at)
-      if (key && key < minKey) minKey = key
-    }
-    const endMs = Date.parse(`${todayKey}T00:00:00Z`)
-    const startMs = Date.parse(`${minKey}T00:00:00Z`)
-    const span = Math.min(14, Math.max(1, Math.round((endMs - startMs) / DAY_MS) + 1))
-    const rows = Array.from({ length: span }, (_, index) => {
-      const dayMs = endMs - (span - 1 - index) * DAY_MS
-      const key = new Date(dayMs).toISOString().slice(0, 10)
-      return { key, label: formatShortDay(new Date(dayMs)), detected: 0, resolved: 0, falseAlarm: 0, expired: 0 }
-    })
-    const byKey = new Map(rows.map((row) => [row.key, row]))
-    for (const fire of fires) {
-      // Each fire contributes to its detection day (always) and, separately, to its
-      // resolution day (only if closed) — the two events can land in different rows.
-      const detectedRow = byKey.get(detectedDayKey(fire.detected_at))
-      if (detectedRow) detectedRow.detected += 1
-      if (fire.status && fire.resolve_time) {
-        const closeRow = byKey.get(utcDayKey(Date.parse(fire.resolve_time)))
-        if (closeRow) {
-          if (fire.false_alarm) closeRow.falseAlarm += 1
-          else if (fire.expired) closeRow.expired += 1
-          else closeRow.resolved += 1
-        }
-      }
-    }
-    return rows
-  }, [fires, nowMs])
+  const dailyRows = useMemo(
+    () => buildDailyRows(reportSource, nowMs, reportDays),
+    [reportSource, nowMs, reportDays],
+  )
+  const todayRows = useMemo(() => buildDailyRows(fires, nowMs, 1), [fires, nowMs])
 
   // Count of unassigned fires older than 3 days — the "at risk of going stale" backlog metric.
   const backlog = useMemo(
@@ -509,19 +572,18 @@ export default function DashboardPage() {
   // Cohort analysis: of fires old enough (>2 days) to reasonably have been handled by now,
   // what fraction were actually closed (excluding auto-expired)? Avoids penalizing very fresh fires.
   const cohort = useMemo(() => {
-    const matured = fires.filter((f) => (detectedAgeMs(f.detected_at, nowMs) ?? 0) > 2 * DAY_MS)
+    const matured = reportSource.filter((f) => (detectedAgeMs(f.detected_at, nowMs) ?? 0) > 2 * DAY_MS)
     const handled = matured.filter((f) => f.status && !f.expired)
     return { total: matured.length, handled: handled.length }
-  }, [fires, nowMs])
+  }, [reportSource, nowMs])
 
   const todayLabel = useMemo(() => formatDateOnly(new Date(nowMs + THAI_OFFSET_MS)), [nowMs])
-  const todayOutcomes = dailyRows[dailyRows.length - 1] ?? { detected: 0, resolved: 0, falseAlarm: 0, expired: 0 }
+  const todayOutcomes = todayRows[0] ?? { detected: 0, resolved: 0, falseAlarm: 0, expired: 0 }
   // Coverage defaults to 100% when there are no open fires (nothing left uncovered).
   const openCoverage = summary.open.length ? percent(summary.assigned.length, summary.open.length) : 100
   const cohortClosureRate = cohort.total ? percent(cohort.handled, cohort.total) : 0
-  const attendedCloses = summary.resolved.length + summary.falseAlarm.length
-  const falseAlarmRate = attendedCloses ? percent(summary.falseAlarm.length, attendedCloses) : 0
-  const topProvince = topProvinceRows[0]
+  const attendedCloses = reportSummary.resolved.length + reportSummary.falseAlarm.length
+  const falseAlarmRate = attendedCloses ? percent(reportSummary.falseAlarm.length, attendedCloses) : 0
   const maxDailyValue = Math.max(...dailyRows.map((row) => Math.max(row.detected, row.resolved)), 1)
 
   return (
@@ -541,7 +603,13 @@ export default function DashboardPage() {
                 <button
                   key={tab.key}
                   type="button"
-                  onClick={() => setActiveTab(tab.key)}
+                  onClick={() => {
+                    if (tab.key === 'info' && activeTab !== 'info') {
+                      setReportFires(null)
+                      setReportError(null)
+                    }
+                    setActiveTab(tab.key)
+                  }}
                   className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${activeTab === tab.key
                       ? 'bg-primary text-white shadow-sm'
                       : 'text-accent hover:bg-background'
@@ -551,6 +619,34 @@ export default function DashboardPage() {
                 </button>
               ))}
             </div>
+            {activeTab === 'info' && (
+              <div
+                role="group"
+                className="flex rounded-lg border border-gray-200 bg-foreground p-1 shadow-md"
+                aria-label="ช่วงข้อมูลสรุป"
+              >
+                {[7, 30].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    aria-pressed={reportDays === days}
+                    onClick={() => {
+                      if (days === reportDays) return
+                      setReportFires(null)
+                      setReportError(null)
+                      setReportDays(days)
+                    }}
+                    className={`rounded-md px-2.5 py-1.5 text-sm font-semibold transition ${
+                      reportDays === days
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'text-gray-600 hover:bg-background'
+                    }`}
+                  >
+                    {days} วัน
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               type="button"
               onClick={refresh}
@@ -703,15 +799,31 @@ export default function DashboardPage() {
               </Panel>
             </section>
           </>
+        ) : reportError ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-2xl bg-foreground p-6 text-center shadow-md">
+            <p className="font-semibold text-red-700">{reportError}</p>
+            <p className="text-sm text-gray-500">ตรวจสอบว่า backend เริ่มทำงานแล้ว จากนั้นลองโหลดอีกครั้ง</p>
+            <button
+              type="button"
+              onClick={refresh}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+            >
+              ลองใหม่
+            </button>
+          </div>
+        ) : reportFires === null ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl bg-foreground p-6 text-sm font-medium text-gray-500 shadow-md">
+            กำลังโหลดข้อมูลย้อนหลัง {reportDays} วัน…
+          </div>
         ) : (
           <>
-            {/* Historical/analytical KPIs: dataset size, closure rate, false-alarm rate, top province */}
-            <section className="grid shrink-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {/* Analytical KPIs from the selected region-scoped HTTP report window. */}
+            <section className="grid shrink-0 gap-3 md:grid-cols-3">
               <MetricCard
                 icon={MapPinIcon}
-                title="จุดไฟที่แสดง"
-                value={fires.length}
-                detail={`${summary.resolved.length} จุดปิดแล้วในชุดข้อมูลนี้`}
+                title={`จุดไฟย้อนหลัง ${reportDays} วัน`}
+                value={reportSource.length}
+                detail={`${reportSummary.resolved.length} จุดปิดแล้วในช่วงนี้`}
                 tone="blue"
               />
               <MetricCard
@@ -725,65 +837,66 @@ export default function DashboardPage() {
                 icon={ExclamationTriangleIcon}
                 title="อัตราไม่พบไฟ"
                 value={`${falseAlarmRate}%`}
-                detail={`${summary.falseAlarm.length}/${attendedCloses} การออกตรวจไม่พบไฟ`}
-                tone="amber"
-              />
-              <MetricCard
-                icon={MapPinIcon}
-                title="จังหวัดเด่น"
-                value={topProvince?.province ?? '-'}
-                detail={topProvince ? `${topProvince.resolved}/${topProvince.total} จุดปิดแล้ว` : 'ยังไม่มีข้อมูลจังหวัด'}
+                detail={`${reportSummary.falseAlarm.length}/${attendedCloses} การออกตรวจไม่พบไฟ`}
                 tone="amber"
               />
             </section>
 
-            <section className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[0.82fr_0.82fr_1.36fr]">
-              <Panel title="Top 3 จังหวัด" subtitle="เรียงตามจำนวนงานปิด แถบแสดงสัดส่วนปิดงาน" icon={MapPinIcon}>
-                <CompactRows
-                  rows={topProvinceRows}
-                  renderRow={(row, index) => (
-                    <div key={row.province} className="px-3 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background text-sm font-semibold text-gray-600">{index + 1}</span>
-                          <p className="truncate text-sm font-semibold text-accent">{row.province}</p>
-                        </div>
-                        <StatusBadge tone="green">{row.resolved} ปิด</StatusBadge>
-                      </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <ProgressBar value={row.resolved} total={row.total} tone="bg-emerald-500" />
-                        <span className="w-16 text-right text-sm text-gray-500">{row.resolved}/{row.total} จุด</span>
-                      </div>
-                    </div>
-                  )}
-                />
-              </Panel>
-
-              <Panel title="Top 3 อำเภอ" subtitle="เรียงตามจำนวนงานปิด แถบแสดงสัดส่วนปิดงาน" icon={MapPinIcon}>
-                <CompactRows
-                  rows={topDistrictRows}
-                  renderRow={(row, index) => (
-                    <div key={`${row.district}-${row.province}`} className="px-3 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background text-sm font-semibold text-gray-600">{index + 1}</span>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-accent">{row.district}</p>
-                            <p className="truncate text-sm text-gray-500">{row.province}</p>
+            <section className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[minmax(260px,0.8fr)_minmax(0,2.2fr)]">
+              <Panel title="อันดับพื้นที่" subtitle={`เรียงตามจำนวนงานปิดย้อนหลัง ${reportDays} วัน`} icon={MapPinIcon}>
+                <div>
+                  <div className="border-b border-gray-200 bg-background/60 px-3 py-2">
+                    <h3 className="text-sm font-semibold text-accent">Top 3 จังหวัด</h3>
+                  </div>
+                  <CompactRows
+                    rows={topProvinceRows}
+                    renderRow={(row, index) => (
+                      <div key={row.province} className="px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background text-sm font-semibold text-gray-600">{index + 1}</span>
+                            <p className="truncate text-sm font-semibold text-accent">{row.province}</p>
                           </div>
+                          <StatusBadge tone="green">{row.resolved} ปิด</StatusBadge>
                         </div>
-                        <StatusBadge tone="green">{row.resolved} ปิด</StatusBadge>
+                        <div className="mt-2 flex items-center gap-2">
+                          <ProgressBar value={row.resolved} total={row.total} tone="bg-emerald-500" />
+                          <span className="w-16 text-right text-sm text-gray-500">{row.resolved}/{row.total} จุด</span>
+                        </div>
                       </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <ProgressBar value={row.resolved} total={row.total} tone="bg-blue-500" />
-                        <span className="w-16 text-right text-sm text-gray-500">{row.resolved}/{row.total} จุด</span>
+                    )}
+                  />
+                </div>
+
+                <div className="border-t border-gray-200">
+                  <div className="border-b border-gray-200 bg-background/60 px-3 py-2">
+                    <h3 className="text-sm font-semibold text-accent">Top 3 อำเภอ</h3>
+                  </div>
+                  <CompactRows
+                    rows={topDistrictRows}
+                    renderRow={(row, index) => (
+                      <div key={`${row.district}-${row.province}`} className="px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background text-sm font-semibold text-gray-600">{index + 1}</span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-accent">{row.district}</p>
+                              <p className="truncate text-sm text-gray-500">{row.province}</p>
+                            </div>
+                          </div>
+                          <StatusBadge tone="green">{row.resolved} ปิด</StatusBadge>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <ProgressBar value={row.resolved} total={row.total} tone="bg-blue-500" />
+                          <span className="w-16 text-right text-sm text-gray-500">{row.resolved}/{row.total} จุด</span>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                />
+                    )}
+                  />
+                </div>
               </Panel>
 
-              <Panel title="Velocity รายวัน" subtitle="เทียบจำนวนพบไฟ (วันที่พบ) กับงานปิด (วันที่ปิดจริง)" icon={ClockIcon}>
+              <Panel title="Velocity รายวัน" subtitle={`พบไฟเทียบงานปิดย้อนหลัง ${reportDays} วัน`} icon={ClockIcon}>
                 <VelocityColumnChart rows={dailyRows} maxValue={maxDailyValue} />
               </Panel>
             </section>
