@@ -47,7 +47,9 @@ function SidebarLayout() {
   return (
     <div className="flex flex-col lg:flex-row h-screen">
       {/* Floating hamburger (mobile only) — opens the nav drawer. No top bar.
-          Hidden while the drawer is open (the drawer has its own close button). */}
+          Hidden while the drawer is open (the drawer has its own close button).
+          Mobile intentionally has no open/close animation, so this just
+          unmounts rather than fading. */}
       {!drawerOpen && (
         <button
           type="button"
@@ -61,14 +63,16 @@ function SidebarLayout() {
 
       <Sidebar />
 
-      {/* Scrim behind the open drawer; tapping it closes. Mobile only. Always
-          mounted so it can fade in/out in sync with the drawer slide (same
-          duration/easing as the sidebar), instead of popping instantly. */}
-      <div
-        className={`fixed inset-0 z-40 bg-black/40 lg:hidden transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${drawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={closeDrawer}
-        aria-hidden={!drawerOpen}
-      />
+      {/* Scrim behind the open drawer; tapping it closes. Mobile only.
+          Rendered only while open — no fade, since the mobile drawer has no
+          open/close animation. */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={closeDrawer}
+          aria-hidden={!drawerOpen}
+        />
+      )}
 
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <Outlet />

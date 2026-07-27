@@ -198,6 +198,9 @@ const MapView = forwardRef(function MapView({ layer, startPoint, startZoom = 10,
 
         map.setRenderWorldCopies(false)
         map.dragRotate.disable()
+        // Keep pinch-to-zoom but drop the two-finger rotate gesture on touch
+        // devices, so the map can never end up at an odd bearing on mobile.
+        map.touchZoomRotate.disableRotation()
         map.doubleClickZoom.disable()
 
         // Source/layer must be (re-)added on every style load because

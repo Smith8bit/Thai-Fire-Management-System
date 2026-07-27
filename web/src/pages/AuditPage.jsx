@@ -6,6 +6,7 @@ import { formatEventTime } from '../lib/datetime'
 import { useRegions } from '../lib/useRegions'
 import PaginationBar from '../components/PaginationBar'
 import RecordCard from '../components/RecordCard'
+import DateInput from '../components/DateInput'
 
 // Human-readable Thai labels for every raw `action` code the backend audit
 // log can emit. Dependency: must stay in sync with the server's action enum;
@@ -241,11 +242,10 @@ export default function AuditPage() {
                 ))}
               </select>
 
-              <input
-                type="date"
+              <DateInput
                 value={onDate}
                 onChange={(e) => { setOnDate(e.target.value); setPage(0) }}
-                className={`${INPUT_CLS} w-full md:max-w-fit text-accent`}
+                className="w-full md:max-w-fit"
               />
             </div>
 

@@ -6,6 +6,7 @@ import { formatEventTime } from '../lib/datetime'
 import { useRegions } from '../lib/useRegions'
 import PaginationBar from '../components/PaginationBar'
 import RecordCard from '../components/RecordCard'
+import DateInput from '../components/DateInput'
 
 // Maps evidence attachment MIME types to a file extension for downloaded filenames.
 // Assumption: any content_type not listed here still downloads, just with a generic '.bin' extension.
@@ -182,20 +183,18 @@ export default function HistoryPage() {
 
           {/* Date range: each bound's min/max is clamped to the other, preventing an inverted range */}
           <div className="flex items-center gap-1 w-full md:w-auto">
-            <input
-              type="date"
+            <DateInput
               value={dateFrom}
               max={dateTo || undefined}
               onChange={(e) => { setDateFrom(e.target.value); setPage(0) }}
-              className={`${INPUT_CLS} flex-1 md:max-w-fit text-accent`}
+              className="flex-1 md:max-w-fit"
             />
             <span className="text-accent">–</span>
-            <input
-              type="date"
+            <DateInput
               value={dateTo}
               min={dateFrom || undefined}
               onChange={(e) => { setDateTo(e.target.value); setPage(0) }}
-              className={`${INPUT_CLS} flex-1 md:max-w-fit text-accent`}
+              className="flex-1 md:max-w-fit"
             />
           </div>
 

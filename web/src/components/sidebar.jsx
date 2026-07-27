@@ -112,7 +112,7 @@ export default function Sidebar() {
   return (
     <nav
       aria-label="Sidebar"
-      className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] pt-safe lg:relative lg:z-20 lg:max-w-none lg:pt-3 lg:translate-x-0 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-16' : 'lg:w-56'} flex flex-col h-screen shrink-0 overflow-y-auto overflow-x-hidden whitespace-nowrap border-r border-background/50 bg-foreground shadow-xl lg:shadow-none transition-[width,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]`}
+      className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] pt-safe lg:relative lg:z-20 lg:max-w-none lg:pt-3 lg:translate-x-0 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-16' : 'lg:w-56'} flex flex-col h-screen shrink-0 overflow-y-auto overflow-x-hidden whitespace-nowrap border-r border-background/50 bg-foreground shadow-xl lg:shadow-none lg:transition-[width] lg:duration-300 lg:ease-[cubic-bezier(0.32,0.72,0,1)]`}
     >
       <div className="relative flex h-14 items-center px-3.5 border-b border-background">
         <div
