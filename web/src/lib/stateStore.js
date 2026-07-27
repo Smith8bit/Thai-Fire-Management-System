@@ -55,6 +55,16 @@ export const useSocketStore = create((set, get) => ({
   setReady: (ready) => set({ ready }),     // flag connection readiness for the UI.
 }))
 
+// App-chrome UI state shared between the mobile top bar (hamburger) and the
+// sidebar drawer/backdrop, so either can open/close the off-canvas nav on
+// phones/tablets. Irrelevant on desktop, where the sidebar is a static rail.
+export const useUIStore = create((set) => ({
+  drawerOpen: false,
+  openDrawer:   () => set({ drawerOpen: true }),
+  closeDrawer:  () => set({ drawerOpen: false }),
+  toggleDrawer: () => set((s) => ({ drawerOpen: !s.drawerOpen })),
+}))
+
 // Lightweight UI store linking the map and the list/cards: which fire is hovered
 // vs. clicked-open. Split from the data store so selection changes don't touch fire data.
 export const useMapSelection = create((set) => ({

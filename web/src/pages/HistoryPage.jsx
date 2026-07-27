@@ -5,6 +5,8 @@ import { API_URL, apiFetch, INPUT_CLS, PAGE_SIZE, SELECT_CLS, THEAD_CLS } from '
 import { formatEventTime } from '../lib/datetime'
 import { useRegions } from '../lib/useRegions'
 import PaginationBar from '../components/PaginationBar'
+import RecordCard from '../components/RecordCard'
+import DateInput from '../components/DateInput'
 
 // Maps evidence attachment MIME types to a file extension for downloaded filenames.
 // Assumption: any content_type not listed here still downloads, just with a generic '.bin' extension.
@@ -26,7 +28,7 @@ export default function HistoryPage() {
   const [items, setItems] = useState(null) // array|null: null = loading, [] = loaded-but-empty
   const [total, setTotal] = useState(0) // number: total matching rows from server, for PaginationBar
   const [page, setPage] = useState(0) // number: zero-based current page index
-  const [kind, setKind] = useState('') // '' | 'true' | 'false': filters on the false_alarm flag
+  const [kind, setKind] = useState('') // '' | 'resolved' | 'falsealarm' | 'expired': outcome filter
   const [province, setProvince] = useState('') // string: exact province name filter, '' = all
   const { provinces: provinceRegions } = useRegions()
   // Province filter options derived from the region tree's province-level nodes.
@@ -75,7 +77,12 @@ export default function HistoryPage() {
    */
   const buildFilterParams = () => {
     const p = new URLSearchParams()
-    if (kind) p.set('false_alarm', kind)
+    // Three mutually exclusive outcomes over two backend booleans:
+    // extinguished = not false-alarm AND not expired; false alarm = false_alarm;
+    // expired = auto-timed-out.
+    if (kind === 'resolved') { p.set('false_alarm', 'false'); p.set('expired', 'false') }
+    else if (kind === 'falsealarm') p.set('false_alarm', 'true')
+    else if (kind === 'expired') p.set('expired', 'true')
     if (province) p.set('province', province)
     if (search) p.set('search', search)
     // Converts local-date inputs into UTC ISO bounds; dateTo is exclusive-end-of-day (+24h).
@@ -140,94 +147,98 @@ export default function HistoryPage() {
 
   return (
     <div className="flex-1 min-h-0 overflow-hidden bg-background">
-      <div className="mx-auto flex h-full max-w-[1600px] flex-col gap-3 px-5 py-3 lg:px-8">
-      <div className='flex flex-row gap-4 items-center'>
+        <div className="mx-auto flex h-full lg:max-w-[1600px] flex-col gap-3 px-3 py-3 lg:px-8">
+      <div className='flex flex-col md:flex-row md:gap-4 md:items-center pl-12 lg:pl-0'>
         <h1 className='mt-2 pl-2 font-bold text-3xl text-primary'>ประวัติการดับไฟ</h1>
-        <p className='font-medium text-md text-accent'>รายการจุดไฟที่ดำเนินการเสร็จสิ้นแล้ว</p>
+        <p className='pl-2 md:pl-0 font-medium text-md text-accent'>รายการจุดไฟที่ดำเนินการเสร็จสิ้นแล้ว</p>
       </div>
 
       <div className="flex flex-col flex-1 min-h-0 w-full bg-foreground rounded-2xl p-4 shadow-md">
 
-        <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-gray-300">
-          {/* Outcome filter: '' = all, 'false' = extinguished, 'true' = false alarm (matches API's false_alarm flag) */}
-          <select
-            value={kind}
-            onChange={(e) => { setKind(e.target.value); setPage(0) }}
-            className={`${SELECT_CLS} max-w-fit`}
-          >
-            <option value="">ทั้งหมด</option>
-            <option value="false">ดับแล้ว</option>
-            <option value="true">ไม่ใช่ไฟ</option>
-          </select>
+        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center pb-2 border-b border-gray-300">
+          {/* Outcome + province filters: two-up on phones, inline at md+ */}
+          <div className="grid grid-cols-2 gap-2 md:contents">
+            <select
+              value={kind}
+              onChange={(e) => { setKind(e.target.value); setPage(0) }}
+              className={`${SELECT_CLS} w-full md:max-w-fit`}
+            >
+              <option value="">ทั้งหมด</option>
+              <option value="resolved">ดับแล้ว</option>
+              <option value="falsealarm">ไม่ใช่ไฟ</option>
+              <option value="expired">หมดอายุ</option>
+            </select>
 
-          <select
-            value={province}
-            onChange={(e) => { setProvince(e.target.value); setPage(0) }}
-            className={`${SELECT_CLS} max-w-fit`}
-          >
-            <option value="">ทุกจังหวัด</option>
-            {provinces.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
+            <select
+              value={province}
+              onChange={(e) => { setProvince(e.target.value); setPage(0) }}
+              className={`${SELECT_CLS} w-full md:max-w-fit`}
+            >
+              <option value="">ทุกจังหวัด</option>
+              {provinces.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
 
           {/* Date range: each bound's min/max is clamped to the other, preventing an inverted range */}
-          <div className="flex items-center gap-1">
-            <input
-              type="date"
+          <div className="flex items-center gap-1 w-full md:w-auto">
+            <DateInput
               value={dateFrom}
               max={dateTo || undefined}
               onChange={(e) => { setDateFrom(e.target.value); setPage(0) }}
-              className={`${INPUT_CLS} max-w-fit text-accent`}
+              className="flex-1 md:max-w-fit"
             />
             <span className="text-accent">–</span>
-            <input
-              type="date"
+            <DateInput
               value={dateTo}
               min={dateFrom || undefined}
               onChange={(e) => { setDateTo(e.target.value); setPage(0) }}
-              className={`${INPUT_CLS} max-w-fit text-accent`}
+              className="flex-1 md:max-w-fit"
             />
           </div>
 
-          <button
-            type="button"
-            onClick={download}
-            disabled={downloading}
-            className="text-md font-semibold text-blue-400 hover:text-blue-700 px-2 py-1.5 disabled:opacity-40"
-          >
-            {downloading ? 'กำลังดาวน์โหลด…' : 'ดาวน์โหลด'}
-          </button>
+          {/* Actions + search share a row on phones */}
+          <div className="flex items-center gap-2 w-full md:contents">
+            <button
+              type="button"
+              onClick={download}
+              disabled={downloading}
+              className="shrink-0 text-md font-semibold text-blue-400 hover:text-blue-700 px-2 py-1.5 disabled:opacity-40"
+            >
+              {downloading ? 'กำลังดาวน์โหลด…' : 'ดาวน์โหลด'}
+            </button>
 
-          {/* Search: committed on Enter (form submit) or on blur, not on every keystroke */}
-          <form
-            onSubmit={(e) => { e.preventDefault(); setSearch(searchInput.trim()); setPage(0) }}
-            className="ml-auto flex flex-row w-78 items-center gap-2"
-          >
-            <input
-              type="text"
-              value={searchInput}
-              title="ค้นหาด้วยชื่อจุดไฟ ชื่อเจ้าหน้าที่ หรือที่ตั้ง"
-              onChange={(e) => setSearchInput(e.target.value)}
-              onBlur={() => { setSearch(searchInput.trim()); setPage(0) }}
-              placeholder="ค้นหาชื่อจุดไฟ เจ้าหน้าที่ หรือที่ตั้ง…"
-              autoComplete="off"
-              className={`${INPUT_CLS} flex-1 min-w-0 text-accent`}
-            />
-          </form>
+            {/* Search: committed on Enter (form submit) or on blur, not on every keystroke */}
+            <form
+              onSubmit={(e) => { e.preventDefault(); setSearch(searchInput.trim()); setPage(0) }}
+              className="flex flex-1 flex-row md:ml-auto md:w-78 md:flex-none items-center gap-2"
+            >
+              <input
+                type="text"
+                value={searchInput}
+                title="ค้นหาด้วยชื่อจุดไฟ ชื่อเจ้าหน้าที่ หรือที่ตั้ง"
+                onChange={(e) => setSearchInput(e.target.value)}
+                onBlur={() => { setSearch(searchInput.trim()); setPage(0) }}
+                placeholder="ค้นหาชื่อจุดไฟ เจ้าหน้าที่ หรือที่ตั้ง…"
+                autoComplete="off"
+                className={`${INPUT_CLS} flex-1 min-w-0 text-accent`}
+              />
+            </form>
 
-          {/* Manual refresh: increments `reload` purely to retrigger the fetch effect */}
-          <button
-            type="button"
-            onClick={() => setReload((n) => n + 1)}
-            className="text-md font-semibold text-blue-400 hover:text-blue-700 px-2 py-1.5"
-          >
-            รีเฟรช
-          </button>
+            {/* Manual refresh: increments `reload` purely to retrigger the fetch effect */}
+            <button
+              type="button"
+              onClick={() => setReload((n) => n + 1)}
+              className="shrink-0 text-md font-semibold text-blue-400 hover:text-blue-700 px-2 py-1.5"
+            >
+              รีเฟรช
+            </button>
+          </div>
         </div>
 
         {/* Centers the loading/error/empty states; switches to a scrollable column layout once rows exist */}
-        <div className={`flex ${(items === null) || error || (items !== null && !error && items.length === 0) ? 'justify-center items-center flex-1' : 'flex-col flex-1 min-h-0'}`}>
+        <div className={`flex flex-1 min-h-0 ${(items === null) || error || (items !== null && !error && items.length === 0) ? 'justify-center items-center min-h-72' : 'flex-col'}`}>
           {items === null && <p className="text-gray-400">กำลังโหลด…</p>}
           {error && <p className="text-destructive">{error}</p>}
           {items !== null && !error && items.length === 0 && (
@@ -235,8 +246,8 @@ export default function HistoryPage() {
           )}
 
           {items !== null && !error && items.length > 0 && (
-            <div className="flex-1 min-h-0 overflow-auto minimal-scrollbar">
-              <table className="w-full table-fixed text-left border-collapse">
+            <div className="flex-1 min-h-72 overflow-auto minimal-scrollbar">
+              <table className="hidden md:table w-full table-fixed text-left border-collapse">
                 <colgroup>
                   <col className="w-24" />
                   <col className="w-32" />
@@ -259,8 +270,10 @@ export default function HistoryPage() {
                   {items.map((it) => (
                     <tr key={it.fire_id} className="border-b border-background hover:bg-background/50">
                       <td className="px-3 py-2.5 align-top">
-                        <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${it.false_alarm ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700'}`}>
-                          {it.false_alarm ? 'ไม่ใช่ไฟ' : 'ดับแล้ว'}
+                        {/* Three outcomes: expired (auto-timeout) takes precedence over the
+                            false_alarm flag, then genuine extinguish. */}
+                        <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${it.expired ? 'bg-amber-100 text-amber-700' : it.false_alarm ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700'}`}>
+                          {it.expired ? 'หมดอายุ' : it.false_alarm ? 'ไม่ใช่ไฟ' : 'ดับแล้ว'}
                         </span>
                       </td>
                       <td className="px-3 py-2.5 align-top text-sm font-medium text-gray-900 wrap-break-word">
@@ -270,7 +283,8 @@ export default function HistoryPage() {
                         {[it.tumboon, it.aumper, it.province].filter(Boolean).join(' · ') || '—'}
                       </td>
                       <td className="px-3 py-2.5 align-top text-sm text-gray-500 font-light break-all">
-                        {it.officer_name ?? 'ไม่ทราบ'}
+                        {/* Expired fires auto-close with no acting officer. */}
+                        {it.expired ? '—' : (it.officer_name ?? 'ไม่ทราบ')}
                       </td>
                       <td className="px-3 py-2.5 align-top text-sm text-gray-500 font-light whitespace-pre-line wrap-break-word">
                         {it.note || '—'}
@@ -316,6 +330,66 @@ export default function HistoryPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Mobile: same rows as cards (the table is hidden below md). */}
+              <div className="md:hidden space-y-2">
+                {items.map((it) => (
+                  <RecordCard
+                    key={it.fire_id}
+                    title={it.name}
+                    badge={
+                      <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${it.expired ? 'bg-amber-100 text-amber-700' : it.false_alarm ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700'}`}>
+                        {it.expired ? 'หมดอายุ' : it.false_alarm ? 'ไม่ใช่ไฟ' : 'ดับแล้ว'}
+                      </span>
+                    }
+                    rows={[
+                      { label: 'ที่ตั้ง', value: [it.tumboon, it.aumper, it.province].filter(Boolean).join(' · ') || '—' },
+                      { label: 'ดับโดย', value: it.expired ? '—' : (it.officer_name ?? 'ไม่ทราบ') },
+                      { label: 'เวลาดับ', value: formatEventTime(it.resolved_at) },
+                    ]}
+                  >
+                    {(it.note || it.images.length > 0) && (
+                      <div>
+                        <p className="mb-0.5 text-gray-500">รายละเอียด</p>
+                        <div className="whitespace-pre-line wrap-break-word font-light">
+                        {it.note || '—'}
+                        {it.images.length > 0 && (
+                          <div className="mt-1.5 flex gap-1.5 flex-wrap">
+                            {it.images.map(({ id, content_type }) => {
+                              const path = `/fires/${it.fire_id}/images/${id}`
+                              const url = `${API_URL}${path}`
+                              const isVideo = content_type?.startsWith('video/')
+                              const filename = `evidence-${id}.${EXT[content_type] ?? 'bin'}`
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  onClick={() => setViewer({ path, url, isVideo, filename })}
+                                  className="relative h-16 w-16 overflow-hidden rounded-lg border border-gray-200 bg-black"
+                                >
+                                  {isVideo ? (
+                                    <>
+                                      <video src={url} muted preload="metadata" className="h-16 w-16 object-cover" />
+                                      <span className="absolute inset-0 flex items-center justify-center">
+                                        <svg viewBox="0 0 24 24" className="h-7 w-7 fill-white/90 drop-shadow">
+                                          <path d="M8 5v14l11-7z" />
+                                        </svg>
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <img src={url} alt="หลักฐาน" className="h-16 w-16 object-cover" />
+                                  )}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                        </div>
+                      </div>
+                    )}
+                  </RecordCard>
+                ))}
+              </div>
             </div>
           )}
 

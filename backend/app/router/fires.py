@@ -59,6 +59,7 @@ async def list_resolutions(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     false_alarm: bool | None = None,
+    expired: bool | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     province: str | None = None,
@@ -73,6 +74,7 @@ async def list_resolutions(
         limit:       Page size (1-100).
         offset:      Number of records to skip.
         false_alarm: Filter to true/false alarm resolutions only; None returns both.
+        expired:     Filter to auto-expired (timed-out) closures only; None returns both.
         since:       Inclusive lower bound on resolution timestamp.
         until:       Exclusive upper bound on resolution timestamp.
         province:    Province code to narrow results to a single province.
@@ -95,6 +97,7 @@ async def list_resolutions(
         limit=limit,
         offset=offset,
         false_alarm=false_alarm,
+        expired=expired,
         since=since,
         until=until,
         province=province,
@@ -105,6 +108,7 @@ async def list_resolutions(
 @router.get("/resolutions/export")
 async def export_resolutions(
     false_alarm: bool | None = None,
+    expired: bool | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     province: str | None = None,
@@ -130,6 +134,7 @@ async def export_resolutions(
     items = await get_resolutions_for_export(
         user=user,
         false_alarm=false_alarm,
+        expired=expired,
         since=since,
         until=until,
         province=province,

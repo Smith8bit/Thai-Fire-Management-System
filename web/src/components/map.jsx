@@ -198,6 +198,9 @@ const MapView = forwardRef(function MapView({ layer, startPoint, startZoom = 10,
 
         map.setRenderWorldCopies(false)
         map.dragRotate.disable()
+        // Keep pinch-to-zoom but drop the two-finger rotate gesture on touch
+        // devices, so the map can never end up at an odd bearing on mobile.
+        map.touchZoomRotate.disableRotation()
         map.doubleClickZoom.disable()
 
         // Source/layer must be (re-)added on every style load because
@@ -269,7 +272,13 @@ const MapView = forwardRef(function MapView({ layer, startPoint, startZoom = 10,
         const map = mapRef.current
         if (!map || !focusedId) return
         const p = pointsRef.current?.find((x) => x.id === focusedId)
-        if (p) map.flyTo({ center: [p.lng, p.lat], zoom: 14, duration: 1000 })
+        if (!p) return
+        // On phones the detail bottom sheet covers ~60% of the viewport, so nudge
+        // the focused fire up into the visible strip above it rather than the
+        // screen centre (where the sheet would hide it). No offset on wider screens
+        // where the panel sits to the side.
+        const offset = window.innerWidth < 768 ? [0, -window.innerHeight * 0.28] : [0, 0]
+        map.flyTo({ center: [p.lng, p.lat], zoom: 14, offset, duration: 1000 })
     }, [focusedId])
 
     // Restyles only the highlighted circle (hover takes precedence over focus)

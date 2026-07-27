@@ -10,10 +10,12 @@ import {
   NoSymbolIcon,
   ViewColumnsIcon as SidebarToggleIcon,
   ArrowRightOnRectangleIcon as LogoutIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { apiFetch } from "../lib/shared";
 import appIcon from "../assets/icon.png";
 import { useAuthStore, can } from "../lib/useAuthStore";
+import { useUIStore } from "../lib/stateStore";
 
 /**
  * Sidebar
@@ -34,6 +36,11 @@ export default function Sidebar() {
   const location = useLocation()
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
+
+  // Mobile drawer open/close, shared with the top app bar's hamburger (App.jsx).
+  // Ignored at lg+ where the sidebar is a static rail.
+  const drawerOpen = useUIStore((s) => s.drawerOpen)
+  const closeDrawer = useUIStore((s) => s.closeDrawer)
 
   // Collapsed/expanded state persists across sessions via localStorage so the
   // user's layout preference survives a page reload.
@@ -105,11 +112,11 @@ export default function Sidebar() {
   return (
     <nav
       aria-label="Sidebar"
-      className={`relative z-20 pt-3 flex flex-col h-screen shrink-0 overflow-x-hidden whitespace-nowrap border-r border-background/50 bg-foreground shadow-sm lg:shadow-none transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${collapsed ? 'w-16' : 'w-56'}`}
+      className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] pt-safe lg:relative lg:z-20 lg:max-w-none lg:pt-3 lg:translate-x-0 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-16' : 'lg:w-56'} flex flex-col h-screen shrink-0 overflow-y-auto overflow-x-hidden whitespace-nowrap border-r border-background/50 bg-foreground shadow-xl lg:shadow-none lg:transition-[width] lg:duration-300 lg:ease-[cubic-bezier(0.32,0.72,0,1)]`}
     >
       <div className="relative flex h-14 items-center px-3.5 border-b border-background">
         <div
-          className={`absolute flex items-center transition-opacity duration-250 ${collapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+          className={`absolute flex items-center transition-opacity duration-250 ${collapsed ? 'opacity-100 pointer-events-auto lg:opacity-0 lg:pointer-events-none' : 'opacity-100'}`}
         >
           <img
             src={appIcon}
@@ -125,13 +132,23 @@ export default function Sidebar() {
             </p>
             </div>
         </div>
+        {/* Desktop: collapse/expand the rail. Hidden on mobile where the nav is a drawer. */}
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
           title={collapsed ? 'ขยายแถบเมนู' : 'ย่อแถบเมนู'}
-          className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-black/5 hover:text-gray-800 transition-colors ${collapsed ? 'mx-auto' : 'ml-auto'}`}
+          className={`shrink-0 hidden lg:flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-black/5 hover:text-gray-800 transition-colors ${collapsed ? 'mx-auto' : 'ml-auto'}`}
         >
           <SidebarToggleIcon className="w-4.5 h-4.5" />
+        </button>
+        {/* Mobile: close the drawer. Hidden on desktop. */}
+        <button
+          type="button"
+          onClick={closeDrawer}
+          aria-label="ปิดเมนู"
+          className="shrink-0 lg:hidden flex items-center justify-center w-11 h-11 ml-auto rounded-lg text-gray-500 hover:bg-black/5 hover:text-gray-800 transition-colors"
+        >
+          <XMarkIcon className="w-6 h-6" />
         </button>
       </div>
 
@@ -144,10 +161,10 @@ export default function Sidebar() {
             {initial}
           </div>
           <div className="flex-col my-auto gap-2">
-            <div className={`truncate text-md text-accent transition-opacity duration-300 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`truncate text-md text-accent transition-opacity duration-300 ${collapsed ? 'opacity-100 lg:opacity-0' : 'opacity-100'}`}>
               {user.name}
             </div>
-            <div className={`truncate text-sm text-gray-400 transition-opacity duration-300 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`truncate text-sm text-gray-400 transition-opacity duration-300 ${collapsed ? 'opacity-100 lg:opacity-0' : 'opacity-100'}`}>
               {user.division}
             </div>
           </div>
@@ -155,7 +172,7 @@ export default function Sidebar() {
       </div>
 
       <div className="flex flex-col px-2 py-1.5">
-        <h2 className={`px-3 py-1.5 text-sm font-medium text-gray-400 select-none transition-opacity duration-300 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+        <h2 className={`px-3 py-1.5 text-sm font-medium text-gray-400 select-none transition-opacity duration-300 ${collapsed ? 'opacity-100 lg:opacity-0' : 'opacity-100'}`}>
           เมนู
         </h2>
         <ul className="flex flex-col gap-1.5">
@@ -172,7 +189,7 @@ export default function Sidebar() {
                     : 'text-gray-700 hover:bg-background/50'}`}
                 >
                   <Icon className="w-5 h-5 shrink-0" />
-                  <span className={`truncate flex-1 transition-opacity duration-300 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+                  <span className={`truncate flex-1 transition-opacity duration-300 ${collapsed ? 'opacity-100 lg:opacity-0' : 'opacity-100'}`}>
                     {link.name}
                   </span>
                 </Link>
@@ -182,8 +199,8 @@ export default function Sidebar() {
         </ul>
       </div>
 
-      {user?.is_superuser && !collapsed && (
-        <div className="flex flex-col gap-2 px-2 py-3.5 border-background border-t">
+      {user?.is_superuser && (
+        <div className={`flex flex-col gap-2 px-2 py-3.5 border-background border-t ${collapsed ? 'lg:hidden' : ''}`}>
           <label htmlFor="pollMins" className="px-3 text-sm font-medium text-gray-400 select-none">
             ความถี่ตำแหน่ง (นาที)
           </label>
@@ -209,7 +226,7 @@ export default function Sidebar() {
         </div>
       )}
 
-      <div className="mt-auto p-2 border-t border-background/50">
+      <div className="mt-auto p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-background/50">
         <button
           type="button"
           onClick={handleLogout}
@@ -217,7 +234,7 @@ export default function Sidebar() {
           className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-md text-gray-700 transition-colors hover:bg-background/50 hover:text-brand"
         >
           <LogoutIcon className="w-5 h-5 shrink-0" />
-          <span className={`truncate flex-1 text-left transition-opacity duration-300 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+          <span className={`truncate flex-1 text-left transition-opacity duration-300 ${collapsed ? 'opacity-100 lg:opacity-0' : 'opacity-100'}`}>
             ออกจากระบบ
           </span>
         </button>

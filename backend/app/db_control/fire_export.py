@@ -54,7 +54,7 @@ def _history_csv(items: list[dict[str, Any]]) -> bytes:
             it["aumper"] or "",
             it["province"] or "",
             it["officer_name"] or "",
-            "ไม่ใช่ไฟ" if it["false_alarm"] else "ดับแล้ว",
+            "หมดอายุ" if it["expired"] else ("ไม่ใช่ไฟ" if it["false_alarm"] else "ดับแล้ว"),
             it["note"] or "",
             len(it["images"]),
         ])
@@ -64,6 +64,7 @@ def _history_csv(items: list[dict[str, Any]]) -> bytes:
 async def get_resolutions_for_export(
     user: User | None = None,
     false_alarm: bool | None = None,
+    expired: bool | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     province: str | None = None,
@@ -84,6 +85,7 @@ async def get_resolutions_for_export(
                 Firespot.detail,
                 Firespot.detected_at,
                 Firespot.false_alarm,
+                Firespot.expired,
                 FireResolution.id.label("resolution_id"),
                 FireResolution.note,
                 FireResolution.created_at.label("resolved_at"),
@@ -102,6 +104,8 @@ async def get_resolutions_for_export(
             stmt = stmt.where(or_(*[Region.path.op("<@")(p) for p in paths]))
         if false_alarm is not None:
             stmt = stmt.where(Firespot.false_alarm == false_alarm)
+        if expired is not None:
+            stmt = stmt.where(Firespot.expired == expired)
         if province:
             stmt = stmt.where(Firespot.detail["PROVINCE"].astext == province)
         if search:
@@ -153,6 +157,7 @@ async def get_resolutions_for_export(
                 "officer_name": r.officer_name,
                 "note": r.note,
                 "false_alarm": r.false_alarm,
+                "expired": r.expired,
                 "images": imgs.get(r.resolution_id, []),
             }
             for r in rows

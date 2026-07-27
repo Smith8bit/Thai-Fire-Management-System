@@ -24,6 +24,7 @@ from ..ws.dispatcher_handlers import (
     handle_list_dispatchers,
     handle_update_dispatcher,
 )
+from ..ws.fire_status import handle_cancel_false_fire, handle_false_fire
 from ..ws.officers import (
     handle_appoint_officer,
     handle_cancel_booking,
@@ -100,6 +101,10 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     await handle_appoint_officer(ws, user, data, manager.active)
                 case "cancel_booking":
                     await handle_cancel_booking(ws, user, data, manager.active)
+                case "false_fire":
+                    await handle_false_fire(ws, user, data)
+                case "cancel_false_fire":
+                    await handle_cancel_false_fire(ws, user, data)
                 case "list_dispatchers":
                     await handle_list_dispatchers(ws, user)
                 case "create_dispatcher":

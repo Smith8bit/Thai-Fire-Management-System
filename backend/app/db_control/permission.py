@@ -40,6 +40,7 @@ ACTION_PERMS = frozenset(
         "officer.verify",
         "officer.manage",
         "fire.appoint",
+        "fire.false",
         "region_request.decide",
         "dispatcher.manage",
     }
@@ -53,6 +54,7 @@ IMPLIES = {
     "officer.verify": frozenset({"officers.view"}),
     "officer.manage": frozenset({"officers.view"}),
     "fire.appoint": frozenset({"officers.view", "fires.view"}),
+    "fire.false": frozenset({"fires.view"}),
     "region_requests.view": frozenset({"officers.view"}),
     "region_request.decide": frozenset({"region_requests.view", "officers.view"}),
     "dispatcher.manage": frozenset({"dispatchers.view"}),
@@ -69,6 +71,7 @@ PRESETS = {
             "officer.verify",
             "officer.manage",
             "fire.appoint",
+            "fire.false",
             "region_request.decide",
         }
     ),
@@ -79,7 +82,11 @@ PRESETS = {
 # Ensures a dispatcher can always see fires even if their permissions list is empty.
 ROLE_FLOOR = {"dispatcher": frozenset({"fires.view"})}
 
-MANAGE_PERMS = ACTION_PERMS - frozenset({"dispatcher.manage"})
+# Officer-management action perms. Excludes dispatcher.manage (superuser-only) and
+# fire.false, which is a fire-status override that must NOT confer officer-management
+# authority — can_manage_officers gates the whole officer-management surface, so a
+# dispatcher granted only fire.false must not pass it.
+MANAGE_PERMS = ACTION_PERMS - frozenset({"dispatcher.manage", "fire.false"})
 
 # Excludes management-scoped perms that should only be assigned by superusers.
 GRANTABLE = ALL_PERMISSIONS - frozenset({"dispatcher.manage"})
@@ -365,4 +372,11 @@ if __name__ == "__main__":
     assert "fires.view" in effective_perms("dispatcher", None)
     assert "fires.view" in effective_perms("dispatcher", ["officers.view"])
     assert not (effective_perms("dispatcher", []) & MANAGE_PERMS)
+    # fire.false ships in the dispatcher preset and is grantable...
+    assert "fire.false" in PRESETS["dispatcher"]
+    assert "fire.false" in GRANTABLE
+    # ...and granting it implies fires.view but not officer-management authority.
+    assert "fires.view" in effective_perms("dispatcher", ["fire.false"])
+    assert "fire.false" not in MANAGE_PERMS
+    assert not (effective_perms("dispatcher", ["fire.false"]) & MANAGE_PERMS)
     print("permission self-check ok")

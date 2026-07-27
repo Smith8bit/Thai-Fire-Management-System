@@ -114,6 +114,28 @@ async def expire_old_fires() -> None:
                 .where(FieldOfficer.fire_id.in_(expired_ids))
                 .values(fire_id=None)
             )
+            # Record a resolution row for each expired fire so it surfaces in the
+            # resolution history/export alongside officer-resolved and false-alarm
+            # closures. Auto-closure has no acting officer, so officer_id/officer_name
+            # stay null; the firespot's ``expired`` flag is what the UI badges. Guard
+            # against a pre-existing row (e.g. a fire reopened via false-cancel then
+            # left to expire) to respect the one-resolution-per-fire unique constraint.
+            already = set(
+                (
+                    await session.execute(
+                        select(FireResolution.fire_id).where(
+                            FireResolution.fire_id.in_(expired_ids)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            session.add_all(
+                FireResolution(fire_id=fid, officer_id=None, officer_name=None)
+                for fid in expired_ids
+                if fid not in already
+            )
             audit(
                 session,
                 actor=None,
@@ -295,6 +317,7 @@ async def get_resolution_history(
     limit: int = 20,
     offset: int = 0,
     false_alarm: bool | None = None,
+    expired: bool | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     province: str | None = None,
@@ -311,6 +334,7 @@ async def get_resolution_history(
         limit:      Page size.
         offset:     Page start index.
         false_alarm: Filter to confirmed false alarms or real fires; ``None`` = both.
+        expired:    Filter to auto-expired (timed-out) closures or not; ``None`` = both.
         since/until: Inclusive/exclusive bounds on ``FireResolution.created_at``.
         province:   Exact Thai province name filter against JSONB ``detail`` field.
         search:     Case-insensitive substring matched across name, officer, location fields.
@@ -329,6 +353,7 @@ async def get_resolution_history(
                 Firespot.detail,
                 Firespot.detected_at,
                 Firespot.false_alarm,
+                Firespot.expired,
                 FireResolution.id.label("resolution_id"),
                 FireResolution.note,
                 FireResolution.created_at.label("resolved_at"),
@@ -350,6 +375,8 @@ async def get_resolution_history(
             stmt = stmt.where(or_(*[Region.path.op("<@")(p) for p in paths]))
         if false_alarm is not None:
             stmt = stmt.where(Firespot.false_alarm == false_alarm)
+        if expired is not None:
+            stmt = stmt.where(Firespot.expired == expired)
         if province:
             # JSONB path extraction (.astext) for equality avoids casting issues.
             stmt = stmt.where(Firespot.detail["PROVINCE"].astext == province)
@@ -416,6 +443,7 @@ async def get_resolution_history(
                     "officer_name": r.officer_name,
                     "note": r.note,
                     "false_alarm": r.false_alarm,
+                    "expired": r.expired,
                     "images": imgs.get(r.resolution_id, []),
                 }
                 for r in rows

@@ -5,6 +5,8 @@ import { apiFetch, INPUT_CLS, PAGE_SIZE, SELECT_CLS, THEAD_CLS } from '../lib/sh
 import { formatEventTime } from '../lib/datetime'
 import { useRegions } from '../lib/useRegions'
 import PaginationBar from '../components/PaginationBar'
+import RecordCard from '../components/RecordCard'
+import DateInput from '../components/DateInput'
 
 // Human-readable Thai labels for every raw `action` code the backend audit
 // log can emit. Dependency: must stay in sync with the server's action enum;
@@ -13,6 +15,7 @@ const ACTION_LABELS = {
   'fire.reserve': 'จองจุดไฟ',
   'fire.resolve': 'ดับไฟสำเร็จ',
   'fire.false_report': 'แจ้งว่าไม่ใช่ไฟ',
+  'fire.false_cancel': 'ยกเลิกสถานะไม่ใช่ไฟ',
   'fire.appoint': 'มอบหมายเจ้าหน้าที่',
   'fire.release': 'ยกเลิกการจอง',
   'fire.cancel_booking': 'ยกเลิกการมอบหมาย',
@@ -107,6 +110,7 @@ function summarize(item, names = {}) {
     case 'fire.reserve':
     case 'fire.resolve':
     case 'fire.false_report':
+    case 'fire.false_cancel':
       return d.name ?? ''
     case 'fire.appoint':
       return d.officer_name ? `${d.name ?? ''} → ${d.officer_name}` : (d.name ?? '')
@@ -215,119 +219,151 @@ export default function AuditPage() {
 
   return (
     <div className="flex-1 min-h-0 overflow-hidden bg-background">
-      <div className="mx-auto flex h-full max-w-[1600px] flex-col gap-3 px-5 py-3 lg:px-8">
-      <div className='flex flex-row gap-4 items-center'>
-        <h1 className='mt-2 pl-2 font-bold text-3xl text-primary'>บันทึกเหตุการณ์</h1>
-        <p className='font-medium text-md text-accent'>รายการเหตุการณ์ต่างที่เกิดขึ้นในระบบ</p>
-      </div>
-
-      <div className="flex flex-col flex-1 min-h-0 w-full bg-foreground rounded-2xl p-4 shadow-md">
-
-        <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-gray-300">
-
-          {/* Category filter; resets to page 0 on change so results stay in range */}
-          <select
-            value={action}
-            onChange={(e) => { setAction(e.target.value); setPage(0) }}
-            className={`${SELECT_CLS} max-w-fit`}
-          >
-            <option value="">ทุกเหตุการณ์</option>
-            {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-
-          <input
-            type="date"
-            value={onDate}
-            onChange={(e) => { setOnDate(e.target.value); setPage(0) }}
-            className={`${INPUT_CLS} max-w-fit text-accent`}
-          />
-
-          {/* Actor search: committed on Enter (form submit) or on blur, not on every keystroke,
-              to avoid refetching on each character typed */}
-          <form
-            onSubmit={(e) => { e.preventDefault(); setActor(actorInput.trim()); setPage(0) }}
-            className="ml-auto flex flex-row w-78 items-center gap-2"
-          >
-            <input
-              type="text"
-              value={actorInput}
-              title="ค้นหาด้วยชื่อผู้ใช้หรือผู้กระทำ"
-              onChange={(e) => setActorInput(e.target.value)}
-              onBlur={() => { setActor(actorInput.trim()); setPage(0) }}
-              placeholder="ค้นหาด้วยชื่อผู้ใช้หรือผู้กระทำ…"
-              autoComplete="off"
-              className={`${INPUT_CLS} flex-1 min-w-0 text-accent`}
-            />
-          </form>
-
-          {/* Manual refresh: increments `reload` purely to retrigger the fetch effect */}
-          <button
-            type="button"
-            onClick={() => setReload((n) => n + 1)}
-            className="text-md font-semibold text-blue-400 hover:text-blue-700 px-2 py-1.5"
-          >
-            รีเฟรช
-          </button>
+      <div className="mx-auto flex h-full max-w-[1600px] flex-col gap-3 px-3 py-3 lg:px-8">
+        <div className='flex flex-col md:flex-row md:gap-4 md:items-center pl-12 lg:pl-0'>
+          <h1 className='mt-2 pl-2 font-bold text-3xl text-primary'>บันทึกเหตุการณ์</h1>
+          <p className='pl-2 md:pl-0 font-medium text-md text-accent'>รายการเหตุการณ์ต่างที่เกิดขึ้นในระบบ</p>
         </div>
 
-        {/* Centers the loading/error/empty states; switches to a scrollable column layout once rows exist */}
-        <div className={`flex ${(items === null) || error || (items !== null && !error && items.length === 0) ? 'justify-center items-center flex-1' : 'flex-col flex-1 min-h-0'}`}>
-          {items === null && <p className="text-gray-400">กำลังโหลด…</p>}
-          {error && <p className="text-destructive">{error}</p>}
-          {items !== null && !error && items.length === 0 && (
-            <p className="text-gray-400">ไม่พบประวัติ</p>
-          )}
+        <div className="flex flex-col flex-1 min-h-0 w-full bg-foreground rounded-2xl p-4 shadow-md">
 
-          {items !== null && !error && items.length > 0 && (
-            <div className="flex-1 min-h-0 overflow-auto minimal-scrollbar">
-              <table className="w-full table-fixed text-left border-collapse">
-                <colgroup>
-                  <col className="w-36" />
-                  <col className="w-40" />
-                  <col />
-                  <col className="w-32" />
-                </colgroup>
-                <thead className={THEAD_CLS}>
-                  <tr className="text-accent text-sm">
-                    <th className="px-3 py-2 font-medium">เหตุการณ์</th>
-                    <th className="px-3 py-2 font-medium">ผู้กระทำ</th>
-                    <th className="px-3 py-2 font-medium">รายละเอียด</th>
-                    <th className="px-3 py-2 font-medium text-right whitespace-nowrap">เวลา</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id} className="border-b border-background hover:bg-background/50">
-                      <td className="px-3 py-2.5 align-top">
-                        {/* Badge color keyed by the action's category prefix (text before the first dot) */}
-                        <span title={ACTION_LABELS[item.action] ?? item.action} className={`block w-32 text-center text-xs font-semibold px-2 py-1.5 rounded-full truncate ${ACTION_COLORS[item.action.split('.')[0]] ?? 'bg-gray-100 text-gray-600'}`}>
-                          {ACTION_LABELS[item.action] ?? item.action}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 align-top text-sm text-gray-500 font-light break-all">
-                        {/* 'system' is the synthetic actor username for automated jobs (e.g. satellite ingest) */}
-                        {item.actor_username === 'system' ? 'ระบบ' : item.actor_username}
-                      </td>
-                      <td className="px-3 py-2.5 align-top text-sm text-gray-500 font-light whitespace-pre-line wrap-break-word">
-                        {summarize(item, provinceNames) || '—'}
-                      </td>
-                      <td className="px-3 py-2.5 align-top text-sm text-gray-500 whitespace-nowrap text-right">
-                        {formatEventTime(item.at)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center pb-2 border-b border-gray-300">
+
+            {/* Category + date filters: two-up on phones, inline at md+ */}
+            <div className="grid grid-cols-2 gap-2 md:contents">
+              <select
+                value={action}
+                onChange={(e) => { setAction(e.target.value); setPage(0) }}
+                className={`${SELECT_CLS} w-full md:max-w-fit`}
+              >
+                <option value="">ทุกเหตุการณ์</option>
+                {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+
+              <DateInput
+                value={onDate}
+                onChange={(e) => { setOnDate(e.target.value); setPage(0) }}
+                className="w-full md:max-w-fit"
+              />
             </div>
-          )}
 
-          {items?.length > 0 && (
-            <PaginationBar page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />
-          )}
+            {/* Actor search + refresh share a row on phones */}
+            <div className="flex items-center gap-2 w-full md:contents">
+              {/* Actor search: committed on Enter (form submit) or on blur, not on every keystroke,
+                  to avoid refetching on each character typed */}
+              <form
+                onSubmit={(e) => { e.preventDefault(); setActor(actorInput.trim()); setPage(0) }}
+                className="flex flex-1 flex-row md:ml-auto md:w-78 md:flex-none items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={actorInput}
+                  title="ค้นหาด้วยชื่อผู้ใช้หรือผู้กระทำ"
+                  onChange={(e) => setActorInput(e.target.value)}
+                  onBlur={() => { setActor(actorInput.trim()); setPage(0) }}
+                  placeholder="ค้นหาด้วยชื่อผู้ใช้หรือผู้กระทำ…"
+                  autoComplete="off"
+                  className={`${INPUT_CLS} flex-1 min-w-0 text-accent`}
+                />
+              </form>
+
+              {/* Manual refresh: increments `reload` purely to retrigger the fetch effect */}
+              <button
+                type="button"
+                onClick={() => setReload((n) => n + 1)}
+                className="shrink-0 text-md font-semibold text-blue-400 hover:text-blue-700 px-2 py-1.5"
+              >
+                รีเฟรช
+              </button>
+            </div>
+          </div>
+
+          {/* Centers the loading/error/empty states; switches to a scrollable column layout once rows exist */}
+          <div className={`flex flex-1 min-h-0 ${(items === null) || error || (items !== null && !error && items.length === 0) ? 'justify-center items-center min-h-72' : 'flex-col'}`}>
+            {items === null && <p className="text-gray-400">กำลังโหลด…</p>}
+            {error && <p className="text-destructive">{error}</p>}
+            {items !== null && !error && items.length === 0 && (
+              <p className="text-gray-400">ไม่พบประวัติ</p>
+            )}
+
+            {items !== null && !error && items.length > 0 && (
+              <div className="flex-1 min-h-72 overflow-auto minimal-scrollbar">
+                <table className="hidden md:table w-full table-fixed text-left border-collapse">
+                  <colgroup>
+                    <col className="w-36" />
+                    <col className="w-40" />
+                    <col />
+                    <col className="w-32" />
+                  </colgroup>
+                  <thead className={THEAD_CLS}>
+                    <tr className="text-accent text-sm">
+                      <th className="px-3 py-2 font-medium">เหตุการณ์</th>
+                      <th className="px-3 py-2 font-medium">ผู้กระทำ</th>
+                      <th className="px-3 py-2 font-medium">รายละเอียด</th>
+                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">เวลา</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.id} className="border-b border-background hover:bg-background/50">
+                        <td className="px-3 py-2.5 align-top">
+                          {/* Badge color keyed by the action's category prefix (text before the first dot) */}
+                          <span title={ACTION_LABELS[item.action] ?? item.action} className={`block w-32 text-center text-xs font-semibold px-2 py-1.5 rounded-full truncate ${ACTION_COLORS[item.action.split('.')[0]] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {ACTION_LABELS[item.action] ?? item.action}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 align-top text-sm text-gray-500 font-light break-all">
+                          {/* 'system' is the synthetic actor username for automated jobs (e.g. satellite ingest) */}
+                          {item.actor_username === 'system' ? 'ระบบ' : item.actor_username}
+                        </td>
+                        <td className="px-3 py-2.5 align-top text-sm text-gray-500 font-light whitespace-pre-line wrap-break-word">
+                          {summarize(item, provinceNames) || '—'}
+                        </td>
+                        <td className="px-3 py-2.5 align-top text-sm text-gray-500 whitespace-nowrap text-right">
+                          {formatEventTime(item.at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Mobile: same entries as cards (the table is hidden below md). */}
+                <div className="md:hidden space-y-2">
+                  {items.map((item) => {
+                    const detail = summarize(item, provinceNames)
+                    return (
+                      <RecordCard
+                        key={item.id}
+                        titleSlot={
+                          <span title={ACTION_LABELS[item.action] ?? item.action} className={`inline-block text-xs font-semibold px-2 py-1 rounded-full ${ACTION_COLORS[item.action.split('.')[0]] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {ACTION_LABELS[item.action] ?? item.action}
+                          </span>
+                        }
+                        rows={[
+                          { label: 'ผู้กระทำ', value: item.actor_username === 'system' ? 'ระบบ' : item.actor_username },
+                          { label: 'เวลา', value: formatEventTime(item.at) },
+                        ]}
+                      >
+                        {detail && (
+                          <div>
+                            <p className="mb-0.5 text-gray-500">รายละเอียด</p>
+                            <p className="whitespace-pre-line wrap-break-word font-light">{detail}</p>
+                          </div>
+                        )}
+                      </RecordCard>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {items?.length > 0 && (
+              <PaginationBar page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />
+            )}
+          </div>
         </div>
-      </div>
       </div>
     </div>
   )

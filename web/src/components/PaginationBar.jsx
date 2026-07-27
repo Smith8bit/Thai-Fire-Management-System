@@ -20,13 +20,15 @@ export default function PaginationBar({ page, pageSize, total, onPage, className
   const lastPage = Math.max(Math.ceil(total / pageSize) - 1, 0)
   const start = page * pageSize + 1
   const end = Math.min((page + 1) * pageSize, total)
-  const btnCls = 'px-3 py-1 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-50'
+  const btnCls = 'px-3.5 py-2 text-sm md:text-base md:px-4 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-50'
 
   return (
-    <div className={`flex items-center justify-between pt-3 text-sm text-gray-600${className ? ` ${className}` : ''}`}>
+    <div className={`flex items-center justify-between pt-3 text-xs md:text-sm text-gray-600${className ? ` ${className}` : ''}`}>
       <div className="flex gap-1">
-        <button type="button" onClick={() => onPage(0)} disabled={page === 0} className={btnCls}>
-          หน้าแรก
+        {/* First/last collapse to a compact « / » glyph on the narrowest screens (full text at sm+) to keep the row from wrapping. */}
+        <button type="button" onClick={() => onPage(0)} disabled={page === 0} className={btnCls} aria-label="หน้าแรก">
+          <span className="sm:hidden" aria-hidden="true">«</span>
+          <span className="hidden sm:inline">หน้าแรก</span>
         </button>
         <button type="button" onClick={() => onPage(page - 1)} disabled={page === 0} className={btnCls}>
           ก่อนหน้า
@@ -39,8 +41,9 @@ export default function PaginationBar({ page, pageSize, total, onPage, className
         <button type="button" onClick={() => onPage(page + 1)} disabled={page >= lastPage} className={btnCls}>
           ถัดไป
         </button>
-        <button type="button" onClick={() => onPage(lastPage)} disabled={page >= lastPage} className={btnCls}>
-          หน้าสุดท้าย
+        <button type="button" onClick={() => onPage(lastPage)} disabled={page >= lastPage} className={btnCls} aria-label="หน้าสุดท้าย">
+          <span className="sm:hidden" aria-hidden="true">»</span>
+          <span className="hidden sm:inline">หน้าสุดท้าย</span>
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Bars3Icon } from '@heroicons/react/24/outline'
 
 import Sidebar from './components/sidebar'
 import Toaster from './components/Toaster'
@@ -12,21 +13,67 @@ import HistoryPage from './pages/HistoryPage'
 import AuditPage from './pages/AuditPage'
 import UsersPage from './pages/UsersPage'
 import MapViewPage from './pages/MapViewPage'
-import { useSocketStore } from './lib/stateStore'
+import { useSocketStore, useUIStore } from './lib/stateStore'
 import { useAuthStore } from './lib/useAuthStore'
 import { refreshSession } from './lib/shared'
 
 import './App.css'
 
 /**
- * Shared chrome for all authenticated, non-login pages: a fixed sidebar
- * beside a scrollable content area. Nested routes render into <Outlet />.
- * @returns {JSX.Element} Full-height flex layout wrapping the active route.
+ * Shared chrome for all authenticated, non-login pages. On desktop (lg+) this is
+ * the classic fixed sidebar beside a scrollable content area. On phones/tablets
+ * the sidebar becomes an off-canvas drawer opened by a floating hamburger button
+ * (no top bar, so no vertical space is spent). Nested routes render into <Outlet />.
+ * @returns {JSX.Element} Responsive layout wrapping the active route.
  */
 function SidebarLayout() {
+  const drawerOpen = useUIStore((s) => s.drawerOpen)
+  const openDrawer = useUIStore((s) => s.openDrawer)
+  const closeDrawer = useUIStore((s) => s.closeDrawer)
+  const location = useLocation()
+
+  // Close the drawer on any navigation (e.g. tapping a link inside it) so it
+  // never lingers over the newly-loaded page.
+  useEffect(() => { closeDrawer() }, [location.pathname, closeDrawer])
+
+  // Esc closes the drawer for keyboard users; only bound while it's open.
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') closeDrawer() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawerOpen, closeDrawer])
+
   return (
-    <div className="flex flex-row h-screen">
+    <div className="flex flex-col lg:flex-row h-screen">
+      {/* Floating hamburger (mobile only) — opens the nav drawer. No top bar.
+          Hidden while the drawer is open (the drawer has its own close button).
+          Mobile intentionally has no open/close animation, so this just
+          unmounts rather than fading. */}
+      {!drawerOpen && (
+        <button
+          type="button"
+          onClick={openDrawer}
+          aria-label="เปิดเมนู"
+          className="lg:hidden fixed top-[calc(env(safe-area-inset-top)+0.75rem)] left-3 z-30 flex items-center justify-center w-11 h-11 rounded-xl border border-background bg-foreground text-gray-700 shadow-md hover:bg-background"
+        >
+          <Bars3Icon className="w-6 h-6" />
+        </button>
+      )}
+
       <Sidebar />
+
+      {/* Scrim behind the open drawer; tapping it closes. Mobile only.
+          Rendered only while open — no fade, since the mobile drawer has no
+          open/close animation. */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={closeDrawer}
+          aria-hidden={!drawerOpen}
+        />
+      )}
+
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <Outlet />
       </main>

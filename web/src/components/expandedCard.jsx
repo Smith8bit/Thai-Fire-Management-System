@@ -23,6 +23,15 @@ const CANCEL_ERRORS = {
     not_booked: 'ไฟนี้ไม่ได้ถูกจอง',
 }
 
+// Server error codes -> Thai messages for the false-alarm mark / cancel actions.
+const FALSE_ERRORS = {
+    forbidden: 'คุณไม่มีสิทธิ์ดำเนินการนี้',
+    fire_not_found: 'ไม่พบข้อมูลไฟ',
+    fire_resolved: 'ไฟนี้ถูกปิดไปแล้ว',
+    not_false_alarm: 'ไฟนี้ไม่ได้ถูกทำเครื่องหมายว่าไม่ใช่ไฟ',
+    note_too_long: 'หมายเหตุยาวเกินไป',
+}
+
 /**
  * ExpandedCard
  * Detail panel for a single fire selected on the map/list. Shows fire
@@ -50,15 +59,25 @@ export default function ExpandedCard({ fire, officers }) {
     const [selectedOfficer, setSelectedOfficer] = useState('')
     const [pending, setPending] = useState(false)
     const [cancelling, setCancelling] = useState(false)
-    const canAppoint = can(useAuthStore((s) => s.user), 'fire.appoint')
+    const [markingFalse, setMarkingFalse] = useState(false)
+    const [cancellingFalse, setCancellingFalse] = useState(false)
+    const user = useAuthStore((s) => s.user)
+    const canAppoint = can(user, 'fire.appoint')
+    const canFalse = can(user, 'fire.false')
     const send = useSocketStore((s) => s.send)
     const appointedMsg = useSocketStore((s) => s.byType?.officer_appointed)
     const cancelledMsg = useSocketStore((s) => s.byType?.booking_cancelled)
+    const falseMarkedMsg = useSocketStore((s) => s.byType?.fire_false_marked)
+    const falseCancelledMsg = useSocketStore((s) => s.byType?.fire_false_cancelled)
     const errorMsg = useSocketStore((s) => s.byType?.error)
 
     // A resolved or already-booked fire can't accept a new assignment.
     const locked = fire.status || fire.booked
     const canCancel = canAppoint && fire.booked && !fire.status
+    // Mark-as-false applies to any still-open fire; cancelling applies only once
+    // it's actually flagged as a false alarm (which always implies fire.status).
+    const canMarkFalse = canFalse && !fire.status
+    const canCancelFalse = canFalse && fire.false_alarm
 
     // Officer list can go stale between selection and submit (e.g. they picked
     // up another fire), so re-check busy status right before allowing appoint.
@@ -91,6 +110,30 @@ export default function ExpandedCard({ fire, officers }) {
         toast.error(CANCEL_ERRORS[m.code] ?? 'ยกเลิกไม่สำเร็จ')
     })
 
+    useMessageEffect(falseMarkedMsg, (m) => {
+        if (!markingFalse || m.fire_id !== fire.id) return
+        setMarkingFalse(false)
+        toast.success('ทำเครื่องหมายว่าไม่ใช่ไฟแล้ว')
+    })
+
+    useMessageEffect(errorMsg, (m) => {
+        if (!markingFalse) return
+        setMarkingFalse(false)
+        toast.error(FALSE_ERRORS[m.code] ?? 'ดำเนินการไม่สำเร็จ')
+    })
+
+    useMessageEffect(falseCancelledMsg, (m) => {
+        if (!cancellingFalse || m.fire_id !== fire.id) return
+        setCancellingFalse(false)
+        toast.success('ยกเลิกสถานะไม่ใช่ไฟแล้ว')
+    })
+
+    useMessageEffect(errorMsg, (m) => {
+        if (!cancellingFalse) return
+        setCancellingFalse(false)
+        toast.error(FALSE_ERRORS[m.code] ?? 'ดำเนินการไม่สำเร็จ')
+    })
+
     // Fire-and-wait: flips `pending`/`cancelling` immediately for optimistic UI,
     // then relies on the effects above to resolve it once the server responds.
     const appoint = () => {
@@ -104,21 +147,39 @@ export default function ExpandedCard({ fire, officers }) {
         send({ type: 'cancel_booking', fire_id: fire.id })
     }
 
+    // Marking false closes the fire and frees any assigned officer, so confirm
+    // first (mirrors the destructive-action confirm used elsewhere in the app).
+    const markFalse = () => {
+        if (markingFalse) return
+        if (!window.confirm(`ทำเครื่องหมายว่า "${fire.name}" ไม่ใช่ไฟ?\nไฟจะถูกปิดและปลดเจ้าหน้าที่ที่รับผิดชอบ (ถ้ามี)`)) return
+        setMarkingFalse(true)
+        send({ type: 'false_fire', fire_id: fire.id })
+    }
+
+    const cancelFalse = () => {
+        if (cancellingFalse) return
+        if (!window.confirm(`ยกเลิกสถานะไม่ใช่ไฟของ "${fire.name}"?\nไฟจะกลับมาเปิดอีกครั้ง`)) return
+        setCancellingFalse(true)
+        send({ type: 'cancel_false_fire', fire_id: fire.id })
+    }
+
     return (
-        <div id="container" className="bg-white w-full flex-1 min-h-0 flex flex-col px-4">
+        <div id="container" className="bg-white w-full flex-1 min-h-0 flex flex-col px-4 overflow-y-auto md:overflow-hidden minimal-scrollbar">
             <div id="detail" className="no-scrollbar border-b-2 border-gray-300 pb-4 pt-2">
                 <div className="flex items-start justify-between gap-2">
                     <h2 className="text-2xl text-primary font-bold leading-tight">{fire.name}</h2>
                     <span
                         className={`shrink-0 mt-0.5 px-2.5 py-1 rounded-full text-sm font-semibold ${
-                            fire.status
+                            fire.false_alarm
+                                ? 'bg-slate-200 text-slate-600'
+                                : fire.status
                                 ? 'bg-gray-200 text-gray-600'
                                 : fire.booked
                                 ? 'bg-amber-100 text-amber-700'
                                 : 'bg-red-100 text-red-700'
                         }`}
                     >
-                        {fire.status ? 'ดับแล้ว' : fire.booked ? 'ถูกจอง' : 'ลุกไหม้'}
+                        {fire.false_alarm ? 'ไม่ใช่ไฟ' : fire.status ? 'ดับแล้ว' : fire.booked ? 'ถูกจอง' : 'ลุกไหม้'}
                     </span>
                 </div>
 
@@ -158,13 +219,33 @@ export default function ExpandedCard({ fire, officers }) {
                         {cancelling ? 'กำลังยกเลิก…' : 'ยกเลิกการจอง'}
                     </button>
                 )}
+                {canMarkFalse && (
+                    <button
+                        type="button"
+                        disabled={markingFalse}
+                        onClick={markFalse}
+                        className="mt-3 w-full py-2 text-sm font-medium text-slate-600 border-2 border-slate-200 hover:bg-slate-50 rounded-lg disabled:opacity-50 transition-colors"
+                    >
+                        {markingFalse ? 'กำลังดำเนินการ…' : 'แจ้งว่าไม่ใช่ไฟ'}
+                    </button>
+                )}
+                {canCancelFalse && (
+                    <button
+                        type="button"
+                        disabled={cancellingFalse}
+                        onClick={cancelFalse}
+                        className="mt-3 w-full py-2 text-sm font-medium text-primary border-2 border-flame hover:bg-flame-light rounded-lg disabled:opacity-50 transition-colors"
+                    >
+                        {cancellingFalse ? 'กำลังดำเนินการ…' : 'ยกเลิกสถานะไม่ใช่ไฟ'}
+                    </button>
+                )}
             </div>
 
             {/* Assignment workflow is only rendered for users with `fire.appoint`; the
                 whole block is dimmed/disabled (not unmounted) when `locked` so the
                 panel doesn't jump when a fire resolves or gets booked elsewhere. */}
             {canAppoint && (<>
-            <div className={`flex-1 min-h-0 overflow-y-auto minimal-scrollbar pb-2 border-b-2 border-gray-300 ${locked ? 'opacity-50 pointer-events-none select-none' : ''}`} id="available-officers">
+            <div className={`md:flex-1 md:min-h-0 md:overflow-y-auto minimal-scrollbar pb-2 border-b-2 border-gray-300 ${locked ? 'opacity-50 pointer-events-none select-none' : ''}`} id="available-officers">
                 <p className="sticky top-0 z-10 bg-white py-2 text-md font-semibold text-gray-500">เจ้าหน้าที่ในพื้นที่</p>
                 {officers.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-4">ไม่มีเจ้าหน้าที่</p>

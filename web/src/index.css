@@ -76,6 +76,13 @@
 }
 
 
+html,
+body {
+  /* No route relies on body scroll (each page owns its own scroll container),
+     so clamp horizontal overflow app-wide as a safety net on narrow phones. */
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: 'Kanit', system-ui, sans-serif;
@@ -84,6 +91,16 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* Safe-area helpers for notched phones (viewport-fit=cover). Used by the
+   mobile top app bar and the map bottom sheet so content clears the notch /
+   home indicator. env() falls back to 0 on browsers/devices without insets. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 :focus-visible {
