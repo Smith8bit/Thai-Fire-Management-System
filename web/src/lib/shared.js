@@ -98,7 +98,10 @@ export const errorText = (code) =>
   ERROR_MESSAGES[code] ?? ('เกิดข้อผิดพลาด: ' + (code ?? 'unknown'))
 
 // Shared Tailwind class strings so form inputs/tables render consistently everywhere.
-export const INPUT_CLS = 'w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm'
-export const SELECT_CLS = 'w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-700'
+// `min-h-11` (44px) guarantees a touch-sized target on phones; `text-base` on
+// phone (→ `md:text-sm`) also stops iOS Safari from auto-zooming on focus, while
+// desktop keeps the compact size. Width is set per-call site and overrides `w-full`.
+export const INPUT_CLS = 'w-full min-w-0 min-h-11 border border-gray-200 rounded-lg px-3 py-1.5 text-base md:text-sm'
+export const SELECT_CLS = 'w-full min-w-0 min-h-11 border border-gray-200 rounded-lg px-2 py-1.5 text-base md:text-sm text-gray-700'
 
 export const THEAD_CLS = 'sticky top-0 bg-foreground z-10 [&_th]:shadow-[inset_0_-1px_0_#d1d5db]'

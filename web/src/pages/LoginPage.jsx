@@ -74,17 +74,17 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-background flex justify-start overflow-hidden">
       {/* Left panel: branding + login form, rendered above the background image (z-10) */}
-      <div id='login' className="relative z-10  bg-foreground w-full max-w-md flex flex-col justify-center py-8 px-10 shadow-2xl">
+      <div id='login' className="relative z-10 bg-foreground w-full max-w-md flex flex-col justify-center py-8 px-6 sm:px-10 shadow-2xl">
         <div className='flex flex-col'>
           <div className="w-full flex items-center gap-4 mb-8">
             <img
               src={appIcon}
               alt="FireNET"
-              className="w-24 h-24 shrink-0 rounded-[28%] object-cover"
+              className="w-16 h-16 sm:w-24 sm:h-24 shrink-0 rounded-[28%] object-cover"
             />
             <div>
-              <h1 className="text-4xl font-bold text-primary">FireNET</h1>
-              <h1 className="text-3xl font-medium text-gray-500">ระบบจัดการไฟป่า</h1>
+              <h1 className="text-3xl sm:text-4xl font-bold text-primary">FireNET</h1>
+              <h1 className="text-2xl sm:text-3xl font-medium text-gray-500">ระบบจัดการไฟป่า</h1>
               <p className="text-lg text-gray-400 font-medium font-head">สำหรับผู้ดูแล</p>
             </div>
           </div>
@@ -147,8 +147,8 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
-      {/* Right panel: purely decorative background image, hidden overflow keeps object-fill contained */}
-      <div className='flex-1 overflow-hidden'>
+      {/* Right panel: purely decorative background image; hidden on phones where the form takes the full width */}
+      <div className='hidden md:block flex-1 overflow-hidden'>
         <img
           src={forestPlaceholder}
           alt="ป่าไม้"

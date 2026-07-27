@@ -164,7 +164,7 @@ export default function ExpandedCard({ fire, officers }) {
     }
 
     return (
-        <div id="container" className="bg-white w-full flex-1 min-h-0 flex flex-col px-4">
+        <div id="container" className="bg-white w-full flex-1 min-h-0 flex flex-col px-4 overflow-y-auto md:overflow-hidden minimal-scrollbar">
             <div id="detail" className="no-scrollbar border-b-2 border-gray-300 pb-4 pt-2">
                 <div className="flex items-start justify-between gap-2">
                     <h2 className="text-2xl text-primary font-bold leading-tight">{fire.name}</h2>
@@ -245,7 +245,7 @@ export default function ExpandedCard({ fire, officers }) {
                 whole block is dimmed/disabled (not unmounted) when `locked` so the
                 panel doesn't jump when a fire resolves or gets booked elsewhere. */}
             {canAppoint && (<>
-            <div className={`flex-1 min-h-0 overflow-y-auto minimal-scrollbar pb-2 border-b-2 border-gray-300 ${locked ? 'opacity-50 pointer-events-none select-none' : ''}`} id="available-officers">
+            <div className={`md:flex-1 md:min-h-0 md:overflow-y-auto minimal-scrollbar pb-2 border-b-2 border-gray-300 ${locked ? 'opacity-50 pointer-events-none select-none' : ''}`} id="available-officers">
                 <p className="sticky top-0 z-10 bg-white py-2 text-md font-semibold text-gray-500">เจ้าหน้าที่ในพื้นที่</p>
                 {officers.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-4">ไม่มีเจ้าหน้าที่</p>

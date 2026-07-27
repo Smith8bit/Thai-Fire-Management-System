@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { List } from 'react-window'
-import { ArrowsPointingOutIcon, UserGroupIcon, ChevronDoubleRightIcon, ChevronDoubleLeftIcon, PlusIcon, MinusIcon } from '@heroicons/react/20/solid'
+import { ArrowsPointingOutIcon, UserGroupIcon, ChevronDoubleRightIcon, ChevronDoubleLeftIcon, PlusIcon, MinusIcon, Cog6ToothIcon } from '@heroicons/react/20/solid'
 import { useMapSelection, useSocketStore } from '../lib/stateStore'
 import { useAuthStore, can } from '../lib/useAuthStore'
 import { useFireData } from '../lib/useFireData'
@@ -84,6 +84,7 @@ function FireRow({ index, style, fires }) {
 export default function MapViewPage() {
   const [selectedLayer, setSelectedLayer] = useState(LAYERS['ค่าเริ่มต้น']) // object: currently active basemap style JSON
   const [listCollapsed, setListCollapsed] = useState(false) // boolean: whether the right-hand fire list is hidden
+  const [controlsOpen, setControlsOpen] = useState(false) // boolean (phone only): whether the map-tool cluster is expanded
   const mapRef = useRef(null) // ref to the underlying Map component's imperative handle (resetView/zoomIn/zoomOut)
 
   // User's saved home view, or the module-level default if unset.
@@ -198,69 +199,85 @@ export default function MapViewPage() {
         <Map ref={mapRef} layer={selectedLayer} points={points} startPoint={startPoint} startZoom={home.zoom} officers={showOfficers ? officers : EMPTY_OFFICERS} />
       </div>
 
-      {/* Floating control stack (layers/reset/officers/zoom); shifts left when the side list is expanded */}
-      <div className={`fixed top-3 z-10 flex flex-col items-end gap-2 transition-[right] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${listCollapsed ? 'right-3' : 'right-[calc(25vw+0.75rem)]'}`}>
+      {/* Floating map tools (layers/reset/officers/zoom). On desktop the full stack
+          is always shown and shifts left when the side list is expanded. On phone the
+          stack collapses behind a single hamburger-like toggle to keep the map clear. */}
+      <div className={`fixed top-[calc(env(safe-area-inset-top)+0.75rem)] lg:top-3 z-10 flex flex-col items-end gap-2 right-3 transition-[right] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${listCollapsed ? '' : 'md:right-[calc(25vw+0.75rem)]'}`}>
 
-        <div
-          id="layers"
-          className="flex rounded-lg overflow-hidden shadow-md divide-x divide-gray-300"
-        >
-          {Object.keys(LAYERS).map((key) => (
-            <button
-              key={key}
-              className={`px-3 py-1.5 text-sm font-medium text-primary hover:bg-flame-light hover:text-primary ${selectedLayer === LAYERS[key] ? 'bg-primary text-white' : 'bg-white'}`}
-              onClick={() => setSelectedLayer(LAYERS[key])}
-            >
-              {key}
-            </button>
-          ))}
-        </div>
-
+        {/* Phone-only toggle for the tool cluster below. */}
         <button
-          title="กลับไปจุดเริ่มต้น"
-          className="flex items-center gap-1.5 bg-white rounded-lg shadow-md px-3 py-1.5 text-sm text-primary font-medium hover:bg-flame-light hover:text-primary"
-          onClick={() => mapRef.current?.resetView()}
+          type="button"
+          onClick={() => setControlsOpen((v) => !v)}
+          aria-label="เครื่องมือแผนที่"
+          aria-expanded={controlsOpen}
+          className="md:hidden flex items-center justify-center w-11 h-11 rounded-xl border border-background bg-white text-primary shadow-md hover:bg-flame-light"
         >
-          <ArrowsPointingOutIcon className="w-5 h-5" />
-          กลับไปจุดเริ่มต้น
+          <Cog6ToothIcon className="w-6 h-6" />
         </button>
 
-        {/* Officer visibility toggle only rendered for users permitted to view officers */}
-        {canViewOfficers && (
-          <button
-            title={showOfficers ? 'ซ่อนเจ้าหน้าที่' : 'แสดงเจ้าหน้าที่'}
-            aria-pressed={showOfficers}
-            className={`flex items-center gap-1.5 rounded-lg shadow-md px-3 py-1.5 text-sm text-primary font-medium hover:bg-flame-light hover:text-primary ${showOfficers ? 'bg-primary text-white' : 'bg-white'}`}
-            onClick={() => setShowOfficers((v) => !v)}
+        <div className={`flex-col items-end gap-2 ${controlsOpen ? 'flex' : 'hidden'} md:flex`}>
+          <div
+            id="layers"
+            className="flex rounded-lg overflow-hidden shadow-md divide-x divide-gray-300"
           >
-            <UserGroupIcon className="w-5 h-5" />
-            {showOfficers ? 'ซ่อนเจ้าหน้าที่' : 'แสดงเจ้าหน้าที่'}
-          </button>
-        )}
+            {Object.keys(LAYERS).map((key) => (
+              <button
+                key={key}
+                className={`px-3 py-1.5 text-sm font-medium text-primary hover:bg-flame-light hover:text-primary ${selectedLayer === LAYERS[key] ? 'bg-primary text-white' : 'bg-white'}`}
+                onClick={() => setSelectedLayer(LAYERS[key])}
+              >
+                {key}
+              </button>
+            ))}
+          </div>
 
-        <div id="zoom" className="flex flex-col rounded-lg overflow-hidden shadow-md divide-y divide-gray-300">
           <button
-            title="ซูมเข้า"
-            aria-label="ซูมเข้า"
-            className="bg-white p-1.5 text-primary hover:bg-flame-light hover:text-primary"
-            onClick={() => mapRef.current?.zoomIn()}
+            title="กลับไปจุดเริ่มต้น"
+            className="flex items-center gap-1.5 bg-white rounded-lg shadow-md px-3 py-1.5 text-sm text-primary font-medium hover:bg-flame-light hover:text-primary"
+            onClick={() => mapRef.current?.resetView()}
           >
-            <PlusIcon className="w-5 h-5" />
+            <ArrowsPointingOutIcon className="w-5 h-5" />
+            กลับไปจุดเริ่มต้น
           </button>
-          <button
-            title="ซูมออก"
-            aria-label="ซูมออก"
-            className="bg-white p-1.5 text-primary hover:bg-flame-light hover:text-primary"
-            onClick={() => mapRef.current?.zoomOut()}
-          >
-            <MinusIcon className="w-5 h-5" />
-          </button>
+
+          {/* Officer visibility toggle only rendered for users permitted to view officers */}
+          {canViewOfficers && (
+            <button
+              title={showOfficers ? 'ซ่อนเจ้าหน้าที่' : 'แสดงเจ้าหน้าที่'}
+              aria-pressed={showOfficers}
+              className={`flex items-center gap-1.5 rounded-lg shadow-md px-3 py-1.5 text-sm text-primary font-medium hover:bg-flame-light hover:text-primary ${showOfficers ? 'bg-primary text-white' : 'bg-white'}`}
+              onClick={() => setShowOfficers((v) => !v)}
+            >
+              <UserGroupIcon className="w-5 h-5" />
+              {showOfficers ? 'ซ่อนเจ้าหน้าที่' : 'แสดงเจ้าหน้าที่'}
+            </button>
+          )}
+
+          <div id="zoom" className="flex flex-col rounded-lg overflow-hidden shadow-md divide-y divide-gray-300">
+            <button
+              title="ซูมเข้า"
+              aria-label="ซูมเข้า"
+              className="bg-white p-1.5 text-primary hover:bg-flame-light hover:text-primary"
+              onClick={() => mapRef.current?.zoomIn()}
+            >
+              <PlusIcon className="w-5 h-5" />
+            </button>
+            <button
+              title="ซูมออก"
+              aria-label="ซูมออก"
+              className="bg-white p-1.5 text-primary hover:bg-flame-light hover:text-primary"
+              onClick={() => mapRef.current?.zoomOut()}
+            >
+              <MinusIcon className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
       </div>
 
-      {/* Legend: same right-offset animation as the control stack so it tracks the side list */}
-      <div className={`fixed bottom-3 z-10 bg-white/90 rounded-lg shadow-md px-3 py-2 text-xs text-primary transition-[right] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${listCollapsed ? 'right-3' : 'right-[calc(25vw+0.75rem)]'}`}>
+      {/* Legend: tracks the side list on desktop; hidden on phone where the bottom
+          sheet occupies the lower screen. */}
+      <div className={`hidden md:block fixed bottom-3 z-10 bg-white/90 rounded-lg shadow-md px-3 py-2 text-xs text-primary transition-[right] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${listCollapsed ? 'right-3' : 'right-[calc(25vw+0.75rem)]'}`}>
         <p className="font-semibold mb-1.5">สัญลักษณ์</p>
         <div className="flex flex-col gap-1">
           <LegendDot color={FIRE_COLORS.free} label="ลุกไหม้" />
@@ -275,21 +292,39 @@ export default function MapViewPage() {
         </div>
       </div>
 
-      {/* Collapsible right side panel: width animates between 0 and 25vw */}
-      <div className={`fixed top-0 right-0 h-full z-10 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${listCollapsed ? 'w-0' : 'w-1/4'}`}>
+      {/* Fire list: a right-side panel on desktop (width animates 0 ↔ 25vw), a
+          bottom sheet on phone (peeks a grab handle when collapsed). */}
+      <div
+        className={`fixed z-20 flex flex-col bg-white md:bg-background shadow-xl transition-[transform,width,height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]
+          inset-x-0 bottom-0 h-[60vh] rounded-t-2xl border-t border-background/50
+          md:inset-x-auto md:top-0 md:right-0 md:bottom-auto md:h-full md:rounded-none md:border-t-0 md:border-l
+          ${listCollapsed
+            ? 'translate-y-[calc(100%-2.75rem)] md:translate-y-0 md:w-0'
+            : 'translate-y-0 md:w-1/4'}`}
+      >
 
+        {/* Desktop collapse tab on the left edge. */}
         <button
           title={listCollapsed ? 'แสดงรายการไฟ' : 'ซ่อนรายการไฟ'}
           onClick={() => setListCollapsed((v) => !v)}
-          className="absolute top-1/2 -left-6 -translate-y-1/2 z-20 flex items-center justify-center w-6 h-12 bg-white border border-gray-300 rounded-l-lg shadow-md text-primary hover:bg-flame-light"
+          className="hidden md:flex absolute top-1/2 -left-6 -translate-y-1/2 z-20 items-center justify-center w-6 h-12 bg-white border border-gray-300 rounded-l-lg shadow-md text-primary hover:bg-flame-light"
         >
           {listCollapsed
             ? <ChevronDoubleLeftIcon className="w-5 h-5" />
             : <ChevronDoubleRightIcon className="w-5 h-5" />}
         </button>
 
+        {/* Mobile sheet grabber: full-width tap header that toggles the sheet. */}
+        <button
+          onClick={() => setListCollapsed((v) => !v)}
+          aria-label={listCollapsed ? 'แสดงรายการไฟ' : 'ซ่อนรายการไฟ'}
+          className="md:hidden flex shrink-0 items-center justify-center h-11 w-full rounded-t-2xl"
+        >
+          <span className="h-1.5 w-10 rounded-full bg-gray-400" />
+        </button>
+
         <div
-          className="h-full w-[25vw] bg-background border-l border-background/50 shadow-xl overflow-hidden flex flex-col"
+          className="flex-1 min-h-0 w-full md:w-[25vw] overflow-hidden flex flex-col"
           id="map-controller"
         >
           <div id="list-controls" className="px-4 py-2 space-y-2.5 bg-white border-b border-gray-300">
@@ -369,7 +404,7 @@ export default function MapViewPage() {
         </div>
         {/* Detail overlay: replaces the list panel entirely while a fire is focused */}
         {focused && (
-          <div className="absolute inset-0 z-10 bg-white py-2 overflow-hidden flex flex-col">
+          <div className="absolute inset-0 z-10 bg-white py-2 overflow-hidden flex flex-col rounded-t-2xl md:rounded-none">
             <button
               className="bg-white p-1 w-fit"
               onClick={clearSelection}

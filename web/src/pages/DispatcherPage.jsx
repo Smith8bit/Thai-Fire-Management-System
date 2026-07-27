@@ -8,6 +8,7 @@ import { ERROR_MESSAGES, INPUT_CLS, PAGE_SIZE, SELECT_CLS, THEAD_CLS, USERNAME_P
 import { useRegions } from '../lib/useRegions'
 import PaginationBar from '../components/PaginationBar'
 import CenteredMessage from '../components/CenteredMessage'
+import RecordCard from '../components/RecordCard'
 
 // Region option display text (Thai name); kept as a function for a single override point.
 const regionLabel = (r) => r.name_th
@@ -314,22 +315,104 @@ export default function DispatcherPage() {
   // fires (and re-renders) when clamping actually changed something.
   if (page !== safePage) setPage(safePage)
 
-  return (
-    <div className="flex-1 min-h-0 overflow-hidden bg-background">
-      <div className="mx-auto flex h-full max-w-[1600px] flex-col gap-3 px-5 py-3 lg:px-8">
+  /**
+   * renderEditForm
+   * @param {object} d - the dispatcher row being edited
+   * Shared edit form for a dispatcher row, rendered inside the desktop table
+   * cell and inside the mobile card so the two presentations stay identical.
+   */
+  const renderEditForm = (d) => (
+    <div className="space-y-2 text-accent">
+      <input
+        type="text"
+        value={editUsername}
+        onChange={(e) => setEditUsername(e.target.value)}
+        placeholder="ชื่อผู้ใช้"
+        autoComplete="off"
+        minLength={3}
+        maxLength={32}
+        pattern={USERNAME_PATTERN}
+        title={ERROR_MESSAGES.invalid_username}
+        className={INPUT_CLS}
+      />
+      <input
+        type="text"
+        value={editName}
+        onChange={(e) => setEditName(e.target.value)}
+        placeholder="ชื่อผู้ดูแล"
+        className={INPUT_CLS}
+      />
+      <input
+        type="text"
+        value={editDivision}
+        onChange={(e) => setEditDivision(e.target.value)}
+        placeholder="สังกัด"
+        className={INPUT_CLS}
+      />
+      <select
+        value={editRegion}
+        onChange={(e) => setEditRegion(e.target.value)}
+        className={SELECT_CLS}
+      >
+        {(regions ?? []).map((r) => (
+          <option key={r.id} value={r.id}>{regionLabel(r)}</option>
+        ))}
+      </select>
+      <PermissionFields perms={editPerms} onToggle={toggleEditPerm} onSet={setEditPerms} revertTo={d.permissions ?? []} />
+      <input
+        type="password"
+        value={editPassword}
+        onChange={(e) => setEditPassword(e.target.value)}
+        placeholder="ตั้งรหัสผ่านใหม่ (เว้นว่างหากไม่เปลี่ยน)"
+        autoComplete="new-password"
+        className={INPUT_CLS}
+      />
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => removeDispatcher(d)}
+          disabled={deletingId === d.user_id}
+          className="text-sm text-destructive hover:text-white hover:bg-destructive border-2 rounded-full px-3 py-1.5 disabled:opacity-50"
+        >
+          {deletingId === d.user_id ? 'กำลังลบ…' : 'ลบผู้ดูแล'}
+        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setEditingId(null)}
+            className="text-sm text-gray-500 hover:text-accent px-3 py-1.5"
+          >
+            ยกเลิก
+          </button>
+          <button
+            type="button"
+            onClick={() => saveEdit(d)}
+            disabled={savingId === d.user_id}
+            className="bg-primary hover:bg-brand text-white rounded-xl px-4 py-1.5 text-sm disabled:opacity-50"
+          >
+            {savingId === d.user_id ? 'กำลังบันทึก…' : 'บันทึก'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 
-      <div className='flex flex-row gap-4 items-center'>
+  return (
+    <div className="flex-1 min-h-0 overflow-scroll bg-background">
+      <div className="mx-auto flex min-h-full lg:h-full max-w-[1600px] flex-col gap-3 px-3 py-3 lg:px-8">
+
+      <div className='flex flex-col md:flex-row md:gap-4 md:items-center pl-12 lg:pl-0'>
         <h1 className='mt-2 pl-2 font-bold text-3xl text-primary'>ผู้ดูแล</h1>
-        <p className='font-medium text-md text-accent'>ผู้ดูแลประจำพื้นที่ (สร้าง แก้ไข และลบบัญชี)</p>
+        <p className='pl-2 md:pl-0 font-medium text-md text-accent'>ผู้ดูแลประจำพื้นที่ (สร้าง แก้ไข และลบบัญชี)</p>
       </div>
 
-      <div className="flex-1 min-h-0 w-full flex flex-row gap-4 ">
+      <div className="w-full flex flex-col lg:flex-row gap-4 lg:flex-1 lg:min-h-0">
 
-        <div className="flex-1 flex flex-col min-h-0 bg-foreground h-full rounded-2xl max-w-3/3 p-4 shadow-md">
+        <div className="flex flex-col bg-foreground rounded-2xl p-4 shadow-md max-w-full lg:flex-2 lg:min-h-0 lg:h-full">
 
-          <div className="mb-2 pb-2 border-b border-gray-300 flex flex-row items-center justify-between gap-4">
+          <div className="mb-2 pb-2 border-b border-gray-300 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:justify-between">
             <p className="font-medium text-accent text-lg whitespace-nowrap">ผู้ดูแลประจำพื้นที่ ({dispatchers?.length ?? 0})</p>
-            <div className="flex flex-row items-center gap-2">
+            <div className="flex flex-row items-center gap-2 w-full md:w-auto">
               <div className="flex flex-row gap-2 border border-gray-300 p-1.5 rounded-xl">
                 <select
                   value={sort}
@@ -344,7 +427,7 @@ export default function DispatcherPage() {
                   type="button"
                   onClick={() => { setDir((d) => (d === 'asc' ? 'desc' : 'asc')); setPage(0) }}
                   title={dir === 'asc' ? 'จากน้อยไปมาก' : 'จากมากไปน้อย'}
-                  className="px-2 py-1.5 rounded-lg border border-gray-300 text-accent hover:bg-gray-50"
+                  className="shrink-0 px-2 py-1.5 rounded-lg border border-gray-300 text-accent hover:bg-gray-50"
                 >
                   {dir === 'asc' ? '↑' : '↓'}
                 </button>
@@ -356,12 +439,12 @@ export default function DispatcherPage() {
                 placeholder="ค้นหาชื่อ ชื่อผู้ใช้ สังกัด หรือพื้นที่"
                 title="ค้นหาชื่อ ชื่อผู้ใช้ สังกัด หรือพื้นที่"
                 autoComplete="off"
-                className={`${INPUT_CLS} max-w-56 text-accent`}
+                className={`${INPUT_CLS} flex-1 md:max-w-56 text-accent`}
               />
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto minimal-scrollbar">
+          <div className="min-h-72 max-h-[60vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 minimal-scrollbar">
             {loading ? (
               <CenteredMessage>กำลังโหลด…</CenteredMessage>
             ) : dispatchers.length === 0 ? (
@@ -369,12 +452,13 @@ export default function DispatcherPage() {
             ) : filteredDispatchers.length === 0 ? (
               <CenteredMessage>ไม่พบผู้ดูแลที่ตรงกับการค้นหา</CenteredMessage>
             ) : (
-              <table className="w-full table-fixed text-left border-collapse">
+              <>
+              <table className="hidden md:table w-full table-fixed text-left border-collapse">
                 <thead className={THEAD_CLS}>
                   <tr className="text-accent text-sm">
                     <th title="ชื่อ / ชื่อผู้ใช้" className="px-3 py-2 font-medium w-[24%]">ชื่อ / ชื่อผู้ใช้</th>
                     <th title="สังกัด" className="px-3 py-2 font-medium w-[24%]">สังกัด</th>
-                    <th title="พื้นที่รับผิดชอบ" className="px-3 py-2 font-medium w-[52 %]">พื้นที่รับผิดชอบ</th>
+                    <th title="พื้นที่รับผิดชอบ" className="px-3 py-2 font-medium w-[52%]">พื้นที่รับผิดชอบ</th>
                     {canManage && <th className="px-3 py-2 font-medium w-20"></th>}
                   </tr>
                 </thead>
@@ -384,79 +468,7 @@ export default function DispatcherPage() {
                       // Edit mode: replaces the entire row with a single full-width cell containing the edit form.
                       <tr key={d.user_id}>
                         <td colSpan={dispatcherCols} className="px-3 py-3">
-                          <div className="space-y-2 text-accent">
-                            <input
-                              type="text"
-                              value={editUsername}
-                              onChange={(e) => setEditUsername(e.target.value)}
-                              placeholder="ชื่อผู้ใช้"
-                              autoComplete="off"
-                              minLength={3}
-                              maxLength={32}
-                              pattern={USERNAME_PATTERN}
-                              title={ERROR_MESSAGES.invalid_username}
-                              className={INPUT_CLS}
-                            />
-                            <input
-                              type="text"
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
-                              placeholder="ชื่อผู้ดูแล"
-                              className={INPUT_CLS}
-                            />
-                            <input
-                              type="text"
-                              value={editDivision}
-                              onChange={(e) => setEditDivision(e.target.value)}
-                              placeholder="สังกัด"
-                              className={INPUT_CLS}
-                            />
-                            <select
-                              value={editRegion}
-                              onChange={(e) => setEditRegion(e.target.value)}
-                              className={SELECT_CLS}
-                            >
-                              {(regions ?? []).map((r) => (
-                                <option key={r.id} value={r.id}>{regionLabel(r)}</option>
-                              ))}
-                            </select>
-                            <PermissionFields perms={editPerms} onToggle={toggleEditPerm} onSet={setEditPerms} revertTo={d.permissions ?? []} />
-                            <input
-                              type="password"
-                              value={editPassword}
-                              onChange={(e) => setEditPassword(e.target.value)}
-                              placeholder="ตั้งรหัสผ่านใหม่ (เว้นว่างหากไม่เปลี่ยน)"
-                              autoComplete="new-password"
-                              className={INPUT_CLS}
-                            />
-                            <div className="flex items-center justify-between gap-2">
-                              <button
-                                type="button"
-                                onClick={() => removeDispatcher(d)}
-                                disabled={deletingId === d.user_id}
-                                className="text-sm text-destructive hover:text-white hover:bg-destructive border-2 rounded-full px-3 py-1.5 disabled:opacity-50"
-                              >
-                                {deletingId === d.user_id ? 'กำลังลบ…' : 'ลบผู้ดูแล'}
-                              </button>
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingId(null)}
-                                  className="text-sm text-gray-500 hover:text-accent px-3 py-1.5"
-                                >
-                                  ยกเลิก
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => saveEdit(d)}
-                                  disabled={savingId === d.user_id}
-                                  className="bg-primary hover:bg-brand text-white rounded-xl px-4 py-1.5 text-sm disabled:opacity-50"
-                                >
-                                  {savingId === d.user_id ? 'กำลังบันทึก…' : 'บันทึก'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
+                          {renderEditForm(d)}
                         </td>
                       </tr>
                     ) : (
@@ -483,6 +495,41 @@ export default function DispatcherPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Mobile: same rows as cards (the table is hidden below md). */}
+              <div className="md:hidden space-y-2">
+                {pagedDispatchers.map((d) => (
+                  editingId === d.user_id ? (
+                    <div key={d.user_id} className="rounded-xl border border-flame/40 bg-foreground p-3 shadow-sm">
+                      {renderEditForm(d)}
+                    </div>
+                  ) : (
+                    <RecordCard
+                      key={d.user_id}
+                      titleSlot={
+                        <div className="min-w-0">
+                          <p title={d.name ?? d.username} className="truncate font-semibold text-primary">{d.name ?? d.username}</p>
+                          <p title={d.username} className="truncate text-sm font-light text-gray-500">{d.username}</p>
+                        </div>
+                      }
+                      rows={[
+                        { label: 'สังกัด', value: d.division || '—' },
+                        { label: 'พื้นที่รับผิดชอบ', value: d.region_name_th },
+                      ]}
+                      actions={canManage && (
+                        <button
+                          type="button"
+                          onClick={() => startEdit(d)}
+                          className="text-sm text-primary hover:text-brand border-2 border-flame hover:border-brand hover:bg-flame-light rounded-xl px-3 py-1.5"
+                        >
+                          แก้ไข
+                        </button>
+                      )}
+                    />
+                  )
+                ))}
+              </div>
+              </>
             )}
           </div>
 
@@ -493,13 +540,13 @@ export default function DispatcherPage() {
 
         {/* Create-dispatcher panel only rendered for superusers */}
         {canManage && (
-          <div className="flex-1 flex flex-col min-h-0  bg-foreground h-full rounded-2xl max-w-1/3 p-4 shadow-md">
+          <div className="flex flex-col bg-foreground rounded-2xl p-4 shadow-md max-w-full lg:flex-1 lg:min-h-0 lg:h-full">
 
             <div className="mb-2 pb-2 border-b border-gray-300 flex flex-row items-center justify-between gap-4">
               <p className="font-medium text-accent text-lg">สร้างผู้ดูแลใหม่</p>
             </div>
 
-            <div className="flex-1 min-h-0 px-2">
+            <div className="px-2 lg:flex-1 lg:min-h-0 lg:overflow-y-auto minimal-scrollbar">
               <form onSubmit={createDispatcher} className="space-y-2 text-accent">
                 <input
                   type="text"
